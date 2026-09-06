@@ -11,8 +11,11 @@ const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
 const { userSnapshot } = require('../lib/community-core');
+const { buildReminderCard } = require('../lib/reminders');
+const { LarkClient } = require('../lark-client');
 
 const router = express.Router();
+const lark = new LarkClient(process.env);
 const DATA_PATH = path.join(__dirname, '..', '..', 'public', 'data', 'activities.json');
 
 function readJsonMeta() {
@@ -108,6 +111,22 @@ router.get('/:id/ics', async (req, res) => {
   }
 });
 
+// 站内通知 + 飞书卡片确认（预约/报名成功共用；飞书失败仅记日志，站内兜底不阻断）
+async function notifyAct(userId, openId, { type, stage, title, body, activityId, card }) {
+  try {
+    await query(
+      `INSERT INTO notifications (user_id, type, title, body, link, activity_id, stage)
+       VALUES ($1,$2,$3,$4,'#activities',$5,$6)`,
+      [userId, type, title, body, activityId, stage]);
+  } catch (e) { console.error('[activities.notify]', e.message); }
+  if (openId && /^ou_/.test(String(openId)) && card) {
+    const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
+    const c = buildReminderCard({ title, activity_id: activityId, location: card.location || '' }, card.when || '', site, { header: card.header, foot: card.foot });
+    const s = await lark.sendCardToUser(openId, c);
+    if (!s.ok) console.error('[activities.card]', card.header, s.error);
+  }
+}
+
 // POST /api/activities/:id/reserve —— 预约（authRequired；身份=登录态，姓名/部门快照落库）
 // body: { note? }  ≤500；UNIQUE(user_id,activity_id) 幂等：重复提交 200 repeated，不报错不累积
 router.post('/:id/reserve', authRequired, async (req, res) => {
@@ -130,13 +149,60 @@ router.post('/:id/reserve', authRequired, async (req, res) => {
     if (!r.rows.length) {
       return res.json(ok({ reserved: true, repeated: true, message: '您已预约过该活动' }));
     }
-    // 预约确认 → 站内消息中心（飞书单聊通知 Phase 2 账号打通后启用，push-api.md §7）
-    await query(
-      `INSERT INTO notifications (user_id, type, title, body, link) VALUES ($1,'reserve',$2,$3,'#activities')`,
-      [req.session.userId, '已收到您的预约', `活动「${a.rows[0].title}」预约成功，开始前将通过飞书通知您。`]);
+    // 预约确认：站内通知(activity_id/stage 归并字段) + 飞书交互卡片
+    const u = await query('SELECT open_id FROM users WHERE id=$1', [req.session.userId]);
+    await notifyAct(req.session.userId, u.rows[0] && u.rows[0].open_id, {
+      type: 'reserve', stage: 'reserve', activityId: id,
+      title: '已收到您的预约',
+      body: `活动「${a.rows[0].title}」预约成功，开始前将通过飞书通知您。`,
+      card: { header: '预约成功', foot: '已登记，活动开始前将通过飞书提醒您。', when: '', location: '' },
+    });
     res.status(201).json(ok({ reserved: true, repeated: false, message: '预约成功' }));
   } catch (e) {
     console.error('[activities.reserve]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// POST /api/activities/:id/signup —— 正式活动报名（authRequired；仅 kind='current' 可报）
+// body: { name?, dept?, contact?, note? }  姓名/部门默认登录带出但允许覆写；contact=备用联系方式（选填）
+// UNIQUE(user_id,activity_id) 幂等：重复提交 200 repeated
+router.post('/:id/signup', authRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  const rules = {
+    name:    { type: 'string', max: 50 },
+    dept:    { type: 'string', max: 100 },
+    contact: { type: 'string', max: 100 },
+    note:    { type: 'string', max: 500 },
+  };
+  const { valid, errors, casted } = checkRules(req.body || {}, rules);
+  if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+  try {
+    const a = await query(`SELECT id, kind, title, location, date_label FROM activities WHERE id=$1`, [id]);
+    if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
+    if (a.rows[0].kind !== 'current') {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '该活动尚未开放正式报名（请预约消息通知）'));
+    }
+    const snap = await userSnapshot(req); // 姓名/部门登录带出，允许覆写（部门测试企业可能为空→手填）
+    const r = await query(
+      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id, activity_id) DO NOTHING RETURNING id`,
+      [id, req.session.userId, (casted.name || '').trim() || snap.name, (casted.dept || '').trim() || snap.dept,
+       (casted.contact || '').trim(), casted.note || '']);
+    if (!r.rows.length) {
+      return res.json(ok({ signedUp: true, repeated: true, message: '您已报名过该活动' }));
+    }
+    const u = await query('SELECT open_id FROM users WHERE id=$1', [req.session.userId]);
+    await notifyAct(req.session.userId, u.rows[0] && u.rows[0].open_id, {
+      type: 'signup', stage: 'signup', activityId: id,
+      title: '报名成功',
+      body: `活动「${a.rows[0].title}」报名成功，请准时参加。`,
+      card: { header: '报名成功', foot: '已登记，请准时参加。', when: a.rows[0].date_label || '', location: a.rows[0].location || '' },
+    });
+    res.status(201).json(ok({ signedUp: true, repeated: false, message: '报名成功' }));
+  } catch (e) {
+    console.error('[activities.signup]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

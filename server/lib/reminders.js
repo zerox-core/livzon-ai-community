@@ -34,10 +34,12 @@ function fmtStart(d) {
 
 // 飞书交互卡片：头部蓝标 + markdown 正文；site 非空时加「查看详情」「加入日程」两个按钮。
 // 返回 null → 调用方回退纯文本。
-function buildReminderCard(row, when, site) {
+// 飞书交互卡片：蓝标标题 + markdown 正文 + 可选「查看详情/加入日程」按钮。
+// opts = { header?, foot? }：默认活动开始提醒；报名/预约确认传 header='报名成功'/'预约成功' 复用。
+function buildReminderCard(row, when, site, opts = {}) {
   let md = `**「${row.title}」**\n时间：${when}\n`;
   if (row.location) md += `地点：${row.location}\n`;
-  md += `\n你已预约，记得准时参加。`;
+  md += `\n${opts.foot != null ? opts.foot : '你已预约，记得准时参加。'}`;
   const elements = [{ tag: 'div', text: { tag: 'lark_md', content: md } }];
   if (site) {
     elements.push({
@@ -50,7 +52,7 @@ function buildReminderCard(row, when, site) {
   }
   return {
     config: { wide_screen_mode: true },
-    header: { title: { tag: 'plain_text', content: '活动即将开始提醒' }, template: 'blue' },
+    header: { title: { tag: 'plain_text', content: opts.header || '活动即将开始提醒' }, template: 'blue' },
     elements,
   };
 }
@@ -89,10 +91,11 @@ async function runReminders(lark, { aheadHours = 24, notify = () => {} } = {}) {
         `INSERT INTO activity_reminders (reservation_id, kind, channel, feishu_msg_id)
          VALUES ($1,'pre_start',$2,$3) ON CONFLICT (reservation_id, kind) DO NOTHING`,
         [row.reservation_id, channel, msgId]);
-      // 站内通知（无论飞书是否送达都补一条，保证用户站内可见）
+      // 站内通知（带活动归并字段：activity_id + stage=pre_start；无论飞书是否送达都补一条）
       await query(
-        `INSERT INTO notifications (user_id, type, title, body, link) VALUES ($1,'system',$2,$3,'#activities')`,
-        [row.user_id, '活动即将开始提醒', `「${row.title}」将于 ${when} 开始${row.location ? ' · ' + row.location : ''}。`]);
+        `INSERT INTO notifications (user_id, type, title, body, link, activity_id, stage)
+         VALUES ($1,'system',$2,$3,'#activities',$4,'pre_start')`,
+        [row.user_id, '活动即将开始提醒', `「${row.title}」将于 ${when} 开始${row.location ? ' · ' + row.location : ''}。`, row.activity_id]);
       if (channel === 'feishu') sent++; else skipped++;
       notify('reminder-sent', row.activity_id + ' → user ' + row.user_id + ' via ' + channel);
     } catch (e) {

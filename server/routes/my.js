@@ -76,17 +76,83 @@ router.get('/level', async (req, res) => {
   }
 });
 
-// GET /api/my/messages —— 站内消息（最新 30 条）+ 未读数（顶栏铃铛角标用）
+// GET /api/my/messages —— 站内消息（最新 30 条）+ 未读数；同活动多阶段归并为首条（body 显示最近阶段）
 router.get('/messages', async (req, res) => {
   try {
     const [list, unread] = await Promise.all([
-      query(`SELECT id, type, title, body, link, read, created_at
-             FROM notifications WHERE user_id=$1 ORDER BY created_at DESC, id DESC LIMIT 30`, [req.user.id]),
+      query(`SELECT id, type, title, body, link, activity_id, stage, read, created_at
+             FROM notifications WHERE user_id=$1 ORDER BY created_at DESC, id DESC LIMIT 200`, [req.user.id]),
       query(`SELECT count(*)::int AS c FROM notifications WHERE user_id=$1 AND read=FALSE`, [req.user.id]),
     ]);
-    res.json(ok({ messages: list.rows, unread: unread.rows[0].c }));
+    const byAct = new Map();
+    const plain = [];
+    for (const n of list.rows) {
+      if (n.activity_id) {
+        let g = byAct.get(n.activity_id);
+        if (!g) {
+          g = { id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, activity_id: n.activity_id, stage: n.stage, read: true, created_at: n.created_at, _latest: new Date(n.created_at).getTime() };
+          byAct.set(n.activity_id, g);
+        }
+        if (new Date(n.created_at).getTime() > g._latest) { g._latest = new Date(n.created_at).getTime(); g.body = n.body; g.title = n.title; g.stage = n.stage; }
+        if (!n.read) g.read = false;
+        delete g._latest;
+      } else plain.push(n);
+    }
+    const messages = [...plain, ...byAct.values()]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 30);
+    res.json(ok({ messages, unread: unread.rows[0].c }));
   } catch (e) {
     console.error('[my.messages]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/my/activity-records —— 我的活动记录（预约/报名/通知阶段按活动归并，线性时间线）
+// 供个人中心「活动记录」：每活动一卡，状态与阶段随 activities.kind 实时判定
+router.get('/activity-records', async (req, res) => {
+  try {
+    const [acts, resv, signups, notifs] = await Promise.all([
+      query(`SELECT id, kind, title FROM activities`),
+      query(`SELECT activity_id, created_at FROM activity_reservations WHERE user_id=$1`, [req.user.id]),
+      query(`SELECT activity_id, contact, created_at FROM activity_signups WHERE user_id=$1`, [req.user.id]),
+      query(`SELECT activity_id, stage, title, created_at FROM notifications WHERE user_id=$1 AND activity_id<>'' ORDER BY created_at`, [req.user.id]),
+    ]);
+    const actMap = new Map(acts.rows.map((a) => [a.id, a]));
+    const records = new Map();
+    const stageText = (stage, n) => {
+      const t = { reserve: '已预约（开启消息提醒）', signup: '已报名', pre_start: '收到开始前提醒' }[stage];
+      return { stage: stage || 'notice', time: n.created_at, text: t || (n.title || '通知') };
+    };
+    const get = (id) => {
+      let g = records.get(id);
+      if (!g) {
+        const a = actMap.get(id) || {};
+        g = { activityId: id, title: a.title || '', kind: a.kind || 'upcoming', reserved: false, signedUp: false, contact: '', stages: [], _last: 0 };
+        records.set(id, g);
+      }
+      return g;
+    };
+    for (const r of resv.rows) { const g = get(r.activity_id); g.reserved = true; const s = stageText('reserve', r); g.stages.push(s); g._last = Math.max(g._last, new Date(r.created_at).getTime()); }
+    for (const s of signups.rows) { const g = get(s.activity_id); g.signedUp = true; g.contact = s.contact || ''; const st = stageText('signup', s); g.stages.push(st); g._last = Math.max(g._last, new Date(s.created_at).getTime()); }
+    // 通知仅补「行的阶段之外」的阶段（pre_start 等），避免与已报名/已预约重复展示
+    for (const n of notifs.rows) {
+      if (n.stage === 'reserve' || n.stage === 'signup') continue;
+      const g = get(n.activity_id); const st = stageText(n.stage, n); g.stages.push(st); g._last = Math.max(g._last, new Date(n.created_at).getTime());
+    }
+    // 同阶段只保留一条（行与通知时间级毫秒差造成的重复）
+    for (const g of records.values()) {
+      const seen = new Set();
+      g.stages = g.stages.filter((s) => { const k = s.stage; if (seen.has(k)) return false; seen.add(k); return true; });
+    }
+    const out = [...records.values()].map((g) => {
+      g.stages.sort((a, b) => new Date(a.time) - new Date(b.time));
+      g.statusText = g.kind === 'current' ? '活动进行中' : g.kind === 'upcoming' ? '即将开展' : '已结束';
+      delete g._last;
+      return g;
+    }).sort((a, b) => (b.stages.length ? new Date(b.stages[b.stages.length - 1].time) : 0) - (a.stages.length ? new Date(a.stages[a.stages.length - 1].time) : 0));
+    res.json(ok({ records: out }));
+  } catch (e) {
+    console.error('[my.activity-records]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

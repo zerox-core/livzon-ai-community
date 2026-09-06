@@ -134,6 +134,29 @@ router.get('/activities/reservations', adminRequired, async (req, res) => {
   }
 });
 
+// GET /api/admin/activities/signups —— 报名名单（正式活动，按活动分组，含备用联系方式）
+router.get('/activities/signups', adminRequired, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT s.id, s.activity_id, a.title, s.user_id, s.name, s.dept, s.contact, s.note, s.created_at
+       FROM activity_signups s JOIN activities a ON a.id = s.activity_id
+       ORDER BY a.kind, a.sort, s.created_at`);
+    const groups = new Map();
+    for (const row of r.rows) {
+      if (!groups.has(row.activity_id)) {
+        groups.set(row.activity_id, { activityId: row.activity_id, title: row.title, total: 0, signups: [] });
+      }
+      const g = groups.get(row.activity_id);
+      g.total++;
+      g.signups.push({ id: row.id, userId: row.user_id, name: row.name, dept: row.dept, contact: row.contact, note: row.note, createdAt: row.created_at });
+    }
+    res.json(ok({ activities: [...groups.values()] }));
+  } catch (e) {
+    console.error('[admin.signups]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
 // POST /api/admin/activities/scan-reminders —— 手动跑一轮提醒扫描（测试/应急）
 // body: { aheadHours? }（默认读 REMIND_AHEAD_HOURS=24；测试时可放大窗口验证逻辑，重复预约已被去重表拦截）
 router.post('/activities/scan-reminders', adminRequired, async (req, res) => {
