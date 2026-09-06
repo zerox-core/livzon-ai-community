@@ -17,6 +17,8 @@ function getPool() {
       max: 10,
       idleTimeoutMillis: 30000,
     });
+    // PG 重启/断连会给空闲客户端派发 error 事件；无监听 = 未捕获异常直接杀死进程（2026-09-06 实测）
+    pool.on('error', (e) => { console.warn('[db] idle client error:', e.code || e.message); });
   }
   return pool;
 }

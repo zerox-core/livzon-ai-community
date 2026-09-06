@@ -39,7 +39,11 @@ class PgSessionStore extends Store {
         }
         cb(null, sess || null);
       })
-      .catch((e) => cb(e));
+      .catch((e) => {
+        // PG 不可用时按「未登录」处理，避免 session 中间件把错误抛给全局 500 打挂整站
+        console.warn('[session] PG 不可用，按未登录处理:', e.code || e.message);
+        cb(null, null);
+      });
   }
 
   set(sid, sess, cb) {
@@ -59,7 +63,10 @@ class PgSessionStore extends Store {
   touch(sid, sess, cb) {
     const expire = this._expireOf(sess);
     query('UPDATE sessions SET expire = $2 WHERE sid = $1', [sid, expire])
-      .then(() => { if (cb) cb(null); }).catch((e) => { if (cb) cb(e); });
+      .then(() => { if (cb) cb(null); }).catch((e) => {
+        console.warn('[session] PG 不可用，touch 忽略:', e.code || e.message);
+        if (cb) cb(null);
+      });
   }
 }
 
