@@ -1569,8 +1569,12 @@ var ActivitiesSection = () => {
           oldChars.forEach(el => el.remove());
           bodies = [];
 
-          const fontSize = isMobile ? CHAR_FONT_SIZE_MOBILE : CHAR_FONT_SIZE_DESKTOP;
-          const charHeight = fontSize * CHAR_LINE_HEIGHT;
+          // Container position (world coords) — 先量容器，供字号自适应使用
+          const containerRect = titleContainer.getBoundingClientRect();
+          const containerWorldLeft = containerRect.left + window.scrollX;
+          const containerWorldTop = containerRect.top + window.scrollY;
+
+          let fontSize = isMobile ? CHAR_FONT_SIZE_MOBILE : CHAR_FONT_SIZE_DESKTOP;
 
           // Measure widths
           const measurer = document.createElement('span');
@@ -1580,27 +1584,33 @@ var ActivitiesSection = () => {
             font-size: ${fontSize}px; font-weight: 600; line-height: ${CHAR_LINE_HEIGHT};
           `;
           document.body.appendChild(measurer);
-
-          const charWidths = [];
-          let totalWidth = 0;
-          for (let i = 0; i < CHARS.length; i++) {
-            measurer.textContent = CHARS[i];
-            const w = measurer.offsetWidth;
-            charWidths.push(w);
-            totalWidth += w;
+          const measureRow = (fs) => {
+            measurer.style.fontSize = fs + 'px';
+            const ws = [];
+            let tw = 0;
+            for (let i = 0; i < CHARS.length; i++) {
+              measurer.textContent = CHARS[i];
+              const w = measurer.offsetWidth;
+              ws.push(w);
+              tw += w;
+            }
+            tw += fs * 0.15 * (CHARS.length - 1);
+            return { ws, tw };
+          };
+          let { ws: charWidths, tw: totalWidth } = measureRow(fontSize);
+          // v26: 窄屏自适应——整行宽度超出容器时按比例缩小字号，标题完整可见
+          const maxRowW = Math.max(160, containerRect.width - 12);
+          if (totalWidth > maxRowW) {
+            fontSize = Math.max(20, Math.floor(fontSize * maxRowW / totalWidth));
+            ({ ws: charWidths, tw: totalWidth } = measureRow(fontSize));
           }
+          const charHeight = fontSize * CHAR_LINE_HEIGHT;
           const spacing = fontSize * 0.15;
-          totalWidth += spacing * (CHARS.length - 1);
           document.body.removeChild(measurer);
 
-          // Container position (world coords)
-          const containerRect = titleContainer.getBoundingClientRect();
-          const containerWorldLeft = containerRect.left + window.scrollX;
-          const containerWorldTop = containerRect.top + window.scrollY;
-
           // Starting positions (world coords, center of char)
-          // Left-align with some padding from container left
-          const startX = containerWorldLeft;
+          // v26: 手机档整行在容器内水平居中；桌面档保持原左对齐布局不变
+          const startX = containerWorldLeft + (isMobile ? Math.max(0, (containerRect.width - totalWidth) / 2) : 0);
           const startY = containerWorldTop + charHeight / 2;
 
           let cursorX = startX;
@@ -2037,7 +2047,8 @@ var ActivitiesSection = () => {
     .act-slide-meta{font-family:'JetBrains Mono',monospace;font-size:12px;color:#999;margin-bottom:16px;}
     .act-slide-desc{font-size:14px;color:#666;line-height:1.9;max-width:720px;}
     .act-dots{position:absolute;right:28px;bottom:22px;display:flex;gap:8px;}
-    .act-dots .dot{width:22px;height:2px;background:#ddd;cursor:pointer;transition:background .4s;}
+    .act-dots .dot{width:22px;height:2px;background:#ddd;cursor:pointer;transition:background .4s;position:relative;}
+    .act-dots .dot::before{content:"";position:absolute;inset:-10px;}
     .act-dots .dot.on{background:#1a2b4a;}
     /* v22: split prev/next buttons on both sides + livelier interactions */
     .act-nav-btn{position:absolute;top:50%;z-index:6;width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,0.12);background:rgba(255,255,255,0.66);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;color:#8a6470;cursor:pointer;padding:0;line-height:1;font-family:Georgia,serif;transform:translateY(-50%);opacity:.5;animation:actNavBreath 3.2s ease-in-out infinite;transition:transform .28s cubic-bezier(.34,1.56,.64,1),box-shadow .28s,opacity .28s,background .28s,border-color .28s;}
@@ -2124,6 +2135,28 @@ var ActivitiesSection = () => {
     .type-item.sel .type-line{transform:scaleX(4);height:2px;}
     @media(max-width:1100px){.act-types{grid-template-columns:repeat(2,1fr);gap:36px 48px;}}
     @media(max-width:600px){.act-types{grid-template-columns:1fr;}}
+    /* ===== v26 手机端（≤640px）集中适配 ===== */
+    @media(max-width:640px){
+      /* 侧栏导航：竖排叠字改横向滑动条 */
+      .act-rail{gap:18px;padding:12px 0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+      .act-rail::-webkit-scrollbar{display:none;}
+      .rail-link{white-space:nowrap;flex:none;padding-bottom:10px;letter-spacing:1px;}
+      .rail-link .rail-no{font-size:9px;}
+      /* 预约通知行：两行式，姓名列不再被挤成一字一行 */
+      .sk-line{flex-wrap:wrap;row-gap:12px;padding:24px 0 22px;}
+      .sk-date{font-size:24px;min-width:0;letter-spacing:0;}
+      .sk-main{flex:1 1 100%;order:9;}
+      .sk-name{font-size:16px;}
+      .sk-sub{margin-top:6px;}
+      .sk-arrow{margin-left:auto;}
+      /* 展馆地图：紧凑单列 */
+      .act-types{gap:26px;}
+      .type-no{font-size:38px;}
+      .type-name{font-size:16px;margin:10px 0 6px;}
+      /* 触控目标放大 */
+      .act-nav-btn{width:44px;height:44px;}
+      .act-nav-btn span{font-size:22px;}
+    }
     /* 尾厅 */
     .act-join{background:#1a2b4a;color:#fff;border-radius:2px;padding:72px 48px;text-align:center;margin-top:100px;}
     .act-join .act-eyebrow{color:rgba(255,255,255,0.4);margin-bottom:16px;}
@@ -2183,7 +2216,7 @@ var ActivitiesSection = () => {
     .act-start{position:absolute;left:0;bottom:26px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:5px;color:#c9c9c4;z-index:1;display:flex;align-items:center;gap:10px;}
     .act-start-cursor{display:inline-block;width:1px;height:14px;background:#c9c9c4;animation:actCursorBlink 1.2s steps(1) infinite;}
     @keyframes actCursorBlink{0%,50%{opacity:1;}51%,100%{opacity:0;}}
-    .act-hero-in{opacity:0;transform:translateY(18px);animation:actHeroIn .8s cubic-bezier(.22,1,.36,1) backwards;}
+    .act-hero-in{opacity:0;transform:translateY(18px);animation:actHeroIn .8s cubic-bezier(.22,1,.36,1) both;}
     .hi-1{animation-delay:.1s;}.hi-2{animation-delay:.28s;}.hi-3{animation-delay:.46s;}.hi-4{animation-delay:.64s;}.hi-5{animation-delay:.8s;}.hi-6{animation-delay:1.15s;}
     @keyframes actHeroIn{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
     .act-scroll-progress{position:fixed;top:68px;left:0;height:2px;width:0;background:#1a2b4a;z-index:60;pointer-events:none;}
