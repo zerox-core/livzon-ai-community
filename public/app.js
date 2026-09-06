@@ -1236,7 +1236,7 @@ var ActivitiesSection = () => {
 
         const CHARS = ['玩', '出', '来', '的', 'A', 'I'];
         const CHAR_FONT_SIZE_DESKTOP = 72;
-        const CHAR_FONT_SIZE_MOBILE = 44;
+        const CHAR_FONT_SIZE_MOBILE = 60;
         const CHAR_LINE_HEIGHT = 1;
 
         // state
@@ -2155,7 +2155,17 @@ var ActivitiesSection = () => {
     /* ===== v26 手机端（≤640px）集中适配 ===== */
     @media(max-width:640px){
       /* 标题区整体上移：去掉 vh 最小高度的垂直居中 */
-      .act-hero{min-height:0;justify-content:flex-start;padding:6px 0 30px;}
+      .act-hero{min-height:0;justify-content:flex-start;padding:14px 0 26px;}
+      .act-sub{margin-top:12px;}
+      /* 纵向节奏与字号层级：手机档全局统一降一档(标题60>卡片30>节标20>正文14>辅注11) */
+      .act-sechead{margin:52px 0 18px;scroll-margin-top:120px;}
+      .act-secno{font-size:32px;}
+      .act-sectitle{font-size:20px;letter-spacing:2px;}
+      .act-slide{padding:24px 20px;}
+      .act-slide-name{font-size:20px;margin:10px 0 8px;}
+      .act-slide-name.big{font-size:30px;letter-spacing:1px;}
+      .act-slide-meta{margin-bottom:12px;}
+      .act-feat-ph{margin-top:24px;}
       /* 侧栏导航：竖排叠字改横向滑动条 */
       .act-rail{gap:18px;padding:12px 0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
       .act-rail::-webkit-scrollbar{display:none;}
@@ -2347,7 +2357,7 @@ var ActivitiesSection = () => {
     }
     @media (max-width: 768px) {
       .char-body { font-size: 44px; }
-      #actPhysicsTitle { min-height: 44px; }
+      #actPhysicsTitle { min-height: 64px; }
       .reset-btn { top: auto; bottom: -44px; right: 0; font-size: 11px; padding: 5px 12px; }
     }
     @media (max-width: 480px) {
