@@ -183,7 +183,20 @@ var Nav = ({ onNavigate, currentPage, lightMode }) => {
       position: "absolute", top: 4, right: 5, width: 7, height: 7,
       borderRadius: "50%", background: "#e5484d", border: "1px solid transparent"
     }
-  }) : null), /* @__PURE__ */ React.createElement("a", {
+  }) : null), user && user.role === "admin" ? /* @__PURE__ */ React.createElement("button", {
+    style: {
+      background: lightMode ? "rgba(201,138,27,0.1)" : "rgba(201,138,27,0.18)",
+      color: "#c98a1b",
+      border: `1px solid ${lightMode ? "rgba(201,138,27,0.5)" : "rgba(201,138,27,0.6)"}`,
+      padding: "7px 14px",
+      borderRadius: 22,
+      fontSize: 12,
+      fontWeight: 600,
+      letterSpacing: 2,
+      cursor: "pointer"
+    },
+    onClick: () => onNavigate("admin")
+  }, "管理") : null, /* @__PURE__ */ React.createElement("a", {
     href: "/#my",
     style: {
       display: "flex",
@@ -235,11 +248,11 @@ var Nav = ({ onNavigate, currentPage, lightMode }) => {
       e.currentTarget.style.boxShadow = "none";
     },
     onClick: () => onNavigate("join")
-  }, "加入社团"), showMsg ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", {
+  }, "加入社团"), showMsg ? /* @__PURE__ */ ReactDOM.createPortal(/* @__PURE__ */ React.createElement("div", {
     id: "nav-msg-pop",
     onClick: (e) => e.stopPropagation(),
     style: {
-      position: "fixed", top: 64, right: 40, zIndex: 61,
+      position: "fixed", top: 64, right: 40, zIndex: 5000,
       width: 340, maxHeight: 420, overflowY: "auto",
       background: lightMode ? "#fff" : "#121218",
       border: `1px solid ${lightMode ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)"}`,
@@ -275,7 +288,7 @@ var Nav = ({ onNavigate, currentPage, lightMode }) => {
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: subColor, lineHeight: 1.7 } }, m.body),
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: subColor, marginTop: 6, fontFamily: "'JetBrains Mono', monospace" } }, fmtT(m.created_at)));
       }) : /* @__PURE__ */ React.createElement("div", { style: { padding: "28px 20px", textAlign: "center", fontSize: 12, color: subColor, lineHeight: 1.9 } }, "暂无消息", /* @__PURE__ */ React.createElement("br", null), "活动通知与作品审核结果会显示在这里"));
-  })())) : null);
+  })()), document.body) : null);
 };
 var CurvedWall = ({ onWorkClick }) => {
   const [hoverIndex, setHoverIndex] = React.useState(null);
@@ -655,6 +668,166 @@ var HeroSection = ({ onWorkClick }) => {
     }
   })));
 };
+var AdminPage = () => {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
+    const statusLabel = function (s) { return { pending: "待审核", approved: "已通过", rejected: "已驳回" }[s] || s; };
+    const fmt = function (s) { return s ? String(s).slice(0, 16).replace("T", " ") : "—"; };
+    function patchJson(url, body) {
+      return fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
+    }
+    function loadWorks() {
+      fetch("/api/admin/works").then(function (r) { return r.json(); }).then(function (j) {
+        var el = document.getElementById("adm-works"); if (!el || !j.ok) return;
+        var rows = (j.data && j.data.works) || [];
+        var pend = rows.filter(function (x) { return x.status === "pending"; }).length;
+        if (!rows.length) { el.innerHTML = "<div class='my-empty'>暂无作品</div>"; return; }
+        el.innerHTML = "<div class='adm-note'>共 " + rows.length + " 件，待审核 " + pend + " 件</div>" +
+          "<table class='my-table adm-table'><thead><tr><th>作品</th><th>作者</th><th>状态</th><th>发布</th><th>操作</th></tr></thead><tbody>" +
+          rows.map(function (x) {
+            var acts = "";
+            if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">驳回</button>";
+            if (x.status === "approved") acts += "<button class='adm-btn' onclick=\"window.myAdminPub(" + x.id + "," + (!x.published) + ")\">" + (x.published ? "下架" : "上架") + "</button>";
+            return "<tr><td>" + esc(x.title) + "<span class='adm-kind'>" + esc(x.kind || "") + "</span></td><td>" + esc(x.author || "—") + "</td><td><span class='my-status " + x.status + "'>" + statusLabel(x.status) + "</span></td><td>" + (x.published ? "已发布" : "未发布") + "</td><td class='adm-ops'>" + (acts || "—") + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      }).catch(function () {});
+    }
+    function loadRegs() {
+      fetch("/api/admin/registrations").then(function (r) { return r.json(); }).then(function (j) {
+        var el = document.getElementById("adm-regs"); if (!el || !j.ok) return;
+        el.dataset.loaded = "1";
+        var rows = (j.data && j.data.registrations) || [];
+        if (!rows.length) { el.innerHTML = "<div class='my-empty'>暂无报名</div>"; return; }
+        el.innerHTML = "<div class='adm-note'>共 " + rows.length + " 条报名</div>" +
+          "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>联系方式</th><th>活动</th><th>状态</th><th>操作</th></tr></thead><tbody>" +
+          rows.map(function (x) {
+            var acts = x.status === "pending"
+              ? "<button class='adm-btn ok' onclick=\"window.myAdminReg(" + x.id + ",'approved')\">通过</button><button class='adm-btn no' onclick=\"window.myAdminReg(" + x.id + ",'rejected')\">驳回</button>"
+              : "<span class='adm-done'>已处理</span>";
+            return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.department || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + esc(x.activity || "—") + "</td><td><span class='my-status " + x.status + "'>" + statusLabel(x.status) + "</span></td><td class='adm-ops'>" + acts + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      }).catch(function () {});
+    }
+    function loadResv() {
+      fetch("/api/admin/activities/reservations").then(function (r) { return r.json(); }).then(function (j) {
+        var el = document.getElementById("adm-resv"); if (!el || !j.ok) return;
+        el.dataset.loaded = "1";
+        var acts = (j.data && j.data.activities) || [];
+        if (!acts.length) { el.innerHTML = "<div class='my-empty'>暂无预约</div>"; return; }
+        el.innerHTML = acts.map(function (g) {
+          return "<div class='adm-resv-grp'><div class='adm-resv-h'>" + esc(g.title) + " <span class='adm-resv-c'>" + g.total + " 人</span></div>" +
+            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>参与期待</th><th>预约时间</th></tr></thead><tbody>" +
+            g.reservations.map(function (x) { return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
+            "</tbody></table></div>";
+        }).join("");
+      }).catch(function () {});
+    }
+    function loadSignups() {
+      fetch("/api/admin/activities/signups").then(function (r) { return r.json(); }).then(function (j) {
+        var el = document.getElementById("adm-sgn"); if (!el || !j.ok) return;
+        el.dataset.loaded = "1";
+        var acts = (j.data && j.data.activities) || [];
+        if (!acts.length) { el.innerHTML = "<div class='my-empty'>暂无报名</div>"; return; }
+        el.innerHTML = acts.map(function (g) {
+          return "<div class='adm-resv-grp'><div class='adm-resv-h'>" + esc(g.title) + " <span class='adm-resv-c'>" + g.total + " 人</span></div>" +
+            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>备用联系方式</th><th>参与期待</th><th>报名时间</th></tr></thead><tbody>" +
+            g.signups.map(function (x) { return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
+            "</tbody></table></div>";
+        }).join("");
+      }).catch(function () {});
+    }
+    function initAdmin() {
+      loadWorks();
+      window.myAdminTab = function (t) {
+        ["works", "regs", "resv", "sgn", "sys"].forEach(function (k) {
+          var el = document.getElementById("adm-" + k);
+          if (el) el.style.display = k === t ? "" : "none";
+        });
+        document.querySelectorAll(".adm-tab").forEach(function (b) {
+          var oc = b.getAttribute("onclick") || "";
+          b.classList.toggle("on", oc.indexOf("'" + t + "'") > -1);
+        });
+        if (t === "regs" && (document.getElementById("adm-regs") && !document.getElementById("adm-regs").dataset.loaded)) loadRegs();
+        if (t === "resv" && (document.getElementById("adm-resv") && !document.getElementById("adm-resv").dataset.loaded)) loadResv();
+        if (t === "sgn" && (document.getElementById("adm-sgn") && !document.getElementById("adm-sgn").dataset.loaded)) loadSignups();
+      };
+      window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
+      window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
+      window.myAdminReg = function (id, status) { patchJson("/api/admin/registrations/" + id, { status: status }).then(function () { loadRegs(); }); };
+      window.myAdminScan = function () {
+        var out = document.getElementById("adm-sys-out");
+        var ahead = parseInt((document.getElementById("adm-ahead") || {}).value || "24", 10);
+        if (out) out.innerHTML = "<span class='adm-loading'>扫描中…</span>";
+        fetch("/api/admin/activities/scan-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aheadHours: ahead }) })
+          .then(function (r) { return r.json(); }).then(function (j) {
+            if (!out) return;
+            if (j.ok) { var d = j.data; out.innerHTML = "<div class='adm-scan-ok'>完成：命中 " + d.scanned + " 条 · 已发送 " + d.sent + " · 跳过 " + d.skipped + "（窗口 " + d.aheadHours + "h）。每条预约仅提醒一次。</div>"; }
+            else out.innerHTML = "<div class='adm-scan-err'>失败：" + esc((j.error && j.error.message) || "未知错误") + "</div>";
+          }).catch(function () { if (out) out.innerHTML = "<div class='adm-scan-err'>网络异常</div>"; });
+      };
+    }
+    var h = "<div class='my-sec my-admin'>" +
+      "<div class='my-sechead'><span class='t'>管理控制台</span><span class='e'>ADMIN CONSOLE · 仅管理员可见</span></div>" +
+      "<div class='adm-tabs'>" +
+        "<button class='adm-tab on' onclick=\"window.myAdminTab&&window.myAdminTab('works')\">作品审核</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('resv')\">预约名单</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sgn')\">报名名单</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sys')\">提醒 / 系统</button>" +
+      "</div>" +
+      "<div id='adm-works' class='adm-panel'><div class='adm-loading'>加载中…</div></div>" +
+      "<div id='adm-regs' class='adm-panel' style='display:none'></div>" +
+      "<div id='adm-resv' class='adm-panel' style='display:none'></div>" +
+      "<div id='adm-sgn' class='adm-panel' style='display:none'></div>" +
+      "<div id='adm-sys' class='adm-panel' style='display:none'>" +
+        "<div class='adm-sys-row'><div><div class='adm-sys-t'>手动触发活动开始提醒扫描</div>" +
+        "<div class='adm-sys-d'>扫描「即将开始且未提醒」的预约并向预约人推送飞书 + 站内通知；正常情况每小时自动跑，这里用于测试/应急。</div></div>" +
+        "<div style='display:flex;gap:8px;align-items:center;flex:0 0 auto'><input id='adm-ahead' class='adm-input' type='number' min='1' max='720' value='24' title='提前小时数'><button class='adm-btn primary' onclick=\"window.myAdminScan&&window.myAdminScan()\">立即扫描</button></div></div>" +
+        "<div id='adm-sys-out' class='adm-sys-out'></div>" +
+      "</div>" +
+    "</div>";
+    if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
+    return function () {
+      cancelled = true;
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+    };
+  }, []);
+  return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
+    React.createElement("style", null, `
+    .my-admin{border:1px solid rgba(37,104,216,0.25);background:#fff;border-radius:12px;padding:0 0 20px;}
+    .my-admin .my-sechead{border-bottom:1px solid rgba(0,0,0,0.06);}
+    .my-admin .my-sechead .e{color:#c98a1b;}
+    .adm-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:14px 20px 0;}
+    .adm-tab{font-family:inherit;font-size:13px;letter-spacing:1px;border:1px solid rgba(0,0,0,0.1);background:#f6f7f9;color:#666;padding:8px 16px;border-radius:8px 8px 0 0;cursor:pointer;transition:all .18s;}
+    .adm-tab:hover{color:#1a1a1f;}
+    .adm-tab.on{background:#1a1a1f;color:#fff;border-color:#1a1a1f;}
+    .adm-panel{padding:18px 20px 4px;}
+    .adm-loading{color:#999;font-size:13px;padding:16px 0;}
+    .adm-note{font-size:12px;color:#999;margin-bottom:12px;letter-spacing:1px;}
+    .adm-table td{vertical-align:middle;}
+    .adm-kind{font-size:10px;color:#2568d8;background:rgba(37,104,216,0.08);border-radius:4px;padding:1px 6px;margin-left:8px;font-family:'JetBrains Mono',monospace;}
+    .adm-ops{white-space:nowrap;}
+    .adm-btn{font-family:inherit;font-size:12px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#1a1a1f;border-radius:6px;padding:4px 12px;margin-right:6px;cursor:pointer;transition:all .15s;}
+    .adm-btn:hover{border-color:#1a1a1f;}
+    .adm-btn.ok{border-color:#2a9d63;color:#2a9d63;} .adm-btn.ok:hover{background:#2a9d63;color:#fff;}
+    .adm-btn.no{border-color:#c94b4b;color:#c94b4b;} .adm-btn.no:hover{background:#c94b4b;color:#fff;}
+    .adm-btn.primary{background:#1a1a1f;color:#fff;border-color:#1a1a1f;} .adm-btn.primary:hover{background:#000;}
+    .adm-done{font-size:12px;color:#bbb;}
+    .adm-input{width:64px;font-family:'JetBrains Mono',monospace;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;text-align:center;}
+    .adm-sys-row{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#fafbfc;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:16px 18px;}
+    .adm-sys-t{font-size:14px;font-weight:600;color:#1a1a1f;} .adm-sys-d{font-size:12px;color:#999;margin-top:4px;line-height:1.6;}
+    .adm-sys-out{margin-top:14px;font-size:13px;}
+    .adm-scan-ok{color:#2a9d63;background:rgba(90,200,140,0.1);border-radius:8px;padding:10px 14px;}
+    .adm-scan-err{color:#c94b4b;background:rgba(255,90,90,0.1);border-radius:8px;padding:10px 14px;}
+    .adm-resv-grp{margin-bottom:22px;}
+    .adm-resv-h{font-size:14px;font-weight:600;color:#1a1a1f;margin-bottom:8px;} .adm-resv-c{font-size:12px;color:#2568d8;font-family:'JetBrains Mono',monospace;margin-left:6px;}
+    @media(max-width:820px){.adm-sys-row{flex-direction:column;align-items:flex-start;}}
+  `),
+    React.createElement("div", { ref: ref }));
+};
+
 var ActivitiesSection = () => {
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -756,7 +929,7 @@ var ActivitiesSection = () => {
           var bloomSp = ["peony", "rose", "lily", "lotus", "peony"][si % 5] || "peony";
           var ph = "<div class='act-feat-ph' data-bloom='" + bloomSp + "' aria-hidden='true'><i class='c1'></i><i class='c2'></i><i class='c3'></i><i class='c4'></i><span class='ph-t'>FLOWER · 加载中</span></div>";
           return "<div class='act-slide has-ph" + (si === 0 ? " on" : "") + "'>" +
-            "<div class='act-slide-main'>" +
+            "<div class='act-slide-main' style='cursor:pointer' onclick=\"window.actPanel&&window.actPanel('focus','" + esc(focus.id) + "')\" title='点击查看活动详情并报名'>" +
             "<span class='act-tagx' style='color:" + fc + "'>" + esc(s.t) + "</span>" +
             "<div class='act-slide-name" + (s.big ? " big" : "") + "'>" + esc(s.n) + "</div>" +
             (s.m ? "<div class='act-slide-meta'>" + s.m + "</div>" : "") +
@@ -817,22 +990,23 @@ var ActivitiesSection = () => {
         var pBodyEl = panelRoot.querySelector(".act-p-body");
         var panelOpen = false, panelSaveOverflow = "";
         var panelAct = function (kind, id) {
-          if (kind === "focus") return focus ? { a: focus, mode: "signup", st: "预约中" } : null;
+          if (kind === "focus") return focus ? { a: focus, mode: "enroll", st: "报名中" } : null;
           var arr = kind === "past" ? past : upcoming;
           for (var i = 0; i < arr.length; i++) {
             if (String(arr[i].id) === String(id)) {
               var a = arr[i];
               if (kind === "past") return { a: a, mode: "past", st: "已结束" };
-              return { a: a, mode: "signup", st: "预约中" };
+              return { a: a, mode: "reserve", st: "预约中" };
             }
           }
-          return arr.length ? { a: arr[0], mode: "signup", st: "预约中" } : null;
+          return arr.length ? { a: arr[0], mode: "reserve", st: "预约中" } : null;
         };
         var metaCell = function (k, v) { return "<div class='act-p-meta'><span class='k'>" + k + "</span><span class='v'>" + esc(v || "—") + "</span></div>"; };
-        var openPanel = function (kind, id) {
+        var openPanel = function (kind, id, fromMy) {
           var o = panelAct(kind, id);
           if (!o || !pBodyEl) return;
-          var a = o.a, pastMode = o.mode === "past";
+          var a = o.a, mode = o.mode;
+          var pastMode = mode === "past", enrollMode = mode === "enroll";
           var hl = "";
           if (pastMode) {
             if (a.stats && Object.keys(a.stats).length) hl = "<div class='act-p-hl-head'>数据沉淀</div><div class='past-stats'>" + statsHtml(a.stats) + "</div>";
@@ -845,48 +1019,80 @@ var ActivitiesSection = () => {
               return "<li><span class='no'>" + no + "</span>" + esc(t) + "</li>";
             }).join("") + "</ul>";
           }
-          var lower = pastMode
-            ? "<div class='act-p-ended'><p>该活动已结束</p><a class='act-p-wall' href='/'>前往作品墙 →</a></div>"
-            : "<form class='act-p-form'>" +
-              "<div class='act-p-fhead'><span class='t'>RESERVE · 预约表</span><span class='en'>RESERVATION</span></div>" +
-              "<div class='act-p-field'><label>参与期待</label><textarea name='note' rows='3' placeholder='想听什么 / 想聊什么（选填）'></textarea></div>" +
-              "<button type='submit' class='act-p-submit'>预约 →</button>" +
-              "<p class='act-p-tip'>身份信息将通过飞书登录自动获取，预约消息将通过飞书通知</p>" +
-              "</form>";
-          pBodyEl.innerHTML =
-            "<div class='act-p-eyebrow'>" + (pastMode ? "REVIEW · 往期回顾" : "RESERVE · 活动详情") + "</div>" +
+          var backBtn = fromMy ? "<button class='act-p-back' onclick=\"window.actPanelBack&&window.actPanelBack()\">← 返回个人中心</button>" : "";
+          var formHtml = pastMode
+            ? "<div class='act-p-ended'><p>该活动已结束</p><a class='act-p-wall' href='/#'>前往作品墙 →</a></div>"
+            : enrollMode
+              ? "<form class='act-p-form'>" +
+                "<div class='act-p-fhead'><span class='t'>SIGN UP · 报名表</span><span class='en'>SIGN UP</span></div>" +
+                "<div class='act-p-field'><label>姓名</label><input name='name' maxlength='50' placeholder='默认取飞书登录信息'></div>" +
+                "<div class='act-p-field'><label>部门</label><input name='dept' maxlength='100' placeholder='登录带出，可修改'></div>" +
+                "<div class='act-p-field'><label>备用联系方式</label><input name='contact' maxlength='100' placeholder='手机 / 邮箱（选填）'></div>" +
+                "<div class='act-p-field'><label>参与期待</label><textarea name='note' rows='2' maxlength='500' placeholder='想听什么 / 想聊什么（选填）'></textarea></div>" +
+                "<button type='submit' class='act-p-submit'>确认报名 →</button>" +
+                "<p class='act-p-tip'>个人信息默认从飞书登录提取 · 报名成功后可在个人中心「活动记录」查看</p>" +
+                "</form>"
+              : "<form class='act-p-form'>" +
+                "<div class='act-p-fhead'><span class='t'>RESERVE · 预约表</span><span class='en'>RESERVATION</span></div>" +
+                "<div class='act-p-field'><label>参与期待</label><textarea name='note' rows='3' placeholder='想听什么 / 想聊什么（选填）'></textarea></div>" +
+                "<button type='submit' class='act-p-submit'>预约 →</button>" +
+                "<p class='act-p-tip'>身份信息将通过飞书登录自动获取，活动开始前将通过飞书通知</p>" +
+                "</form>";
+          pBodyEl.innerHTML = backBtn +
+            "<div class='act-p-eyebrow'>" + (pastMode ? "REVIEW · 往期回顾" : enrollMode ? "ENROLL · 活动详情" : "RESERVE · 活动详情") + "</div>" +
             "<h3 class='act-p-title'>" + esc(a.name || "") + "</h3>" +
             "<div class='act-p-grid'>" + metaCell("时间", a.dateLabel) + metaCell("地点", a.location) + metaCell("类型", a.tag || typeOfPast(a)) + metaCell("状态", o.st) + "</div>" +
             (a.desc || a.summary ? "<p class='act-p-desc'>" + esc(a.desc || a.summary) + "</p>" : "") +
-            hl + lower;
+            hl + formHtml;
           if (!pastMode) {
             var f = pBodyEl.querySelector(".act-p-form");
+            // 报名表单：登录信息预填（姓名/部门，可改）
+            if (enrollMode) {
+              fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
+                if (cancelled || !panelOpen || !pBodyEl) return;
+                if (!(j && j.authenticated)) {
+                  var tip0 = pBodyEl.querySelector(".act-p-tip");
+                  if (tip0) tip0.innerHTML = "报名需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
+                  return;
+                }
+                fetch("/api/my/profile").then(function (r) { return r.json(); }).then(function (p) {
+                  if (!p.ok || cancelled || !pBodyEl) return;
+                  var n = pBodyEl.querySelector("input[name='name']"), d = pBodyEl.querySelector("input[name='dept']");
+                  if (n && !n.value) n.value = p.data.name || "";
+                  if (d && !d.value) d.value = p.data.department || "";
+                }).catch(function () {});
+              }).catch(function () {});
+            }
             if (f) f.addEventListener("submit", function (e) {
               e.preventDefault();
-              // 后端契约：POST /api/activities/:id/reserve {note}（身份=飞书登录态；未登录 401 引导登录）
               var btn = f.querySelector(".act-p-submit");
               var tip = f.querySelector(".act-p-tip");
               if (btn && btn.disabled) return;
-              var noteEl = f.querySelector("textarea[name='note']");
+              var val = function (n) { var el = f.querySelector("[name='" + n + "']"); return el ? String(el.value || "").trim() : ""; };
+              var body = enrollMode
+                ? { name: val("name"), dept: val("dept"), contact: val("contact"), note: val("note").slice(0, 500) }
+                : { note: val("note").slice(0, 500) };
+              var ep = enrollMode ? "signup" : "reserve";
+              var btnText = enrollMode ? "确认报名 →" : "预约 →";
               if (btn) { btn.disabled = true; btn.textContent = "提交中…"; }
-              fetch("/api/activities/" + encodeURIComponent(String(a.id || "")) + "/reserve", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ note: String((noteEl && noteEl.value) || "").trim().slice(0, 500) })
+              fetch("/api/activities/" + encodeURIComponent(String(a.id || "")) + "/" + ep, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
               }).then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
                 .then(function (res) {
                   if (res.s === 401) {
-                    if (tip) tip.innerHTML = "预约需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
-                    if (btn) { btn.disabled = false; btn.textContent = "预约 →"; }
+                    if (tip) tip.innerHTML = (enrollMode ? "报名" : "预约") + "需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
+                    if (btn) { btn.disabled = false; btn.textContent = btnText; }
                     return;
                   }
                   if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error && res.j.error.message) || "submit failed");
                   var rep = !!(res.j.data && res.j.data.repeated);
-                  pBodyEl.innerHTML = "<div class='act-p-done'><div class='ring'>✓</div><p class='t'>" + (rep ? "您已预约过该活动" : "已收到您的预约") + "</p><p class='s'>" + esc(a.name || "") + "</p></div>";
+                  var doneTxt = enrollMode ? (rep ? "您已报名过该活动" : "报名成功") : (rep ? "您已预约过该活动" : "已收到您的预约");
+                  pBodyEl.innerHTML = "<div class='act-p-done'><div class='ring'>✓</div><p class='t'>" + doneTxt + "</p><p class='s'>" + esc(a.name || "") + "</p></div>";
                   setTimeout(function () { if (panelOpen) closePanel(); }, 1400);
                 })
                 .catch(function () {
                   if (tip) tip.textContent = "提交失败，请稍后再试";
-                  if (btn) { btn.disabled = false; btn.textContent = "预约 →"; }
+                  if (btn) { btn.disabled = false; btn.textContent = btnText; }
                 });
             });
           }
@@ -910,8 +1116,24 @@ var ActivitiesSection = () => {
           window.removeEventListener("keydown", onPanelKey);
           if (panelRoot.parentNode) panelRoot.parentNode.removeChild(panelRoot);
           document.body.style.overflow = panelSaveOverflow;
+          try { delete window.actPanelBack; } catch (_) { window.actPanelBack = undefined; }
         });
         window.actPanel = openPanel;
+        // 从个人中心「活动记录」跳转：自动打开对应面板（kind=current→focus）+ 带临时返回按钮
+        window.actPanelBack = function () { closePanel(); location.hash = "#my"; };
+        try {
+          var qstr = (location.hash.split("?")[1] || "");
+          var q = {};
+          qstr.split("&").forEach(function (kv) { var i2 = kv.indexOf("="); if (i2 > 0) { q[decodeURIComponent(kv.slice(0, i2))] = decodeURIComponent(kv.slice(i2 + 1)); } });
+          if (q.open) {
+            var parts = String(q.open).split(":");
+            var openKind = parts[0], openId = parts.slice(1).join(":");
+            if (openKind === "current") openKind = "focus";
+            openPanel(openKind, openId, q.from === "my");
+            // 打开后清参数：避免下次进活动页重复自动弹出
+            setTimeout(function () { if (location.hash.indexOf("?open=") > -1) location.hash = "#activities"; }, 400);
+          }
+        } catch (_op) { /* 参数异常不影响正常浏览 */ }
       } catch (pErr) { /* 面板构建异常不阻断主渲染与物理引擎 */ }
       // ===== v10 交互层（轮播 / 展线高亮 / 日程展开 / 拖拽展墙 / 聚光 / 筛选 / 渐显）=====
       try {
@@ -2204,6 +2426,8 @@ var ActivitiesSection = () => {
     .act-p-body{padding:64px 48px 56px;}
     .act-p-close{position:absolute;top:18px;right:22px;width:36px;height:36px;border:1px solid #e2e2df;background:transparent;border-radius:50%;font-size:16px;line-height:36px;color:#888;cursor:pointer;transition:color .3s,border-color .3s,transform .3s;}
     .act-p-close:hover{color:#111;border-color:#111;transform:rotate(90deg);}
+    .act-p-back{background:none;border:none;font-size:13px;color:#2568d8;cursor:pointer;font-family:inherit;padding:2px 0 12px;letter-spacing:1px;}
+    .act-p-back:hover{text-decoration:underline;}
     .act-p-eyebrow{font-size:11px;letter-spacing:3px;color:#999;margin-bottom:14px;}
     .act-p-title{font-family:'Noto Serif SC',serif;font-size:30px;font-weight:300;letter-spacing:2px;line-height:1.4;margin:0 0 26px;color:#111;}
     .act-p-grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #eee;border-left:1px solid #eee;margin-bottom:26px;}
@@ -2390,6 +2614,10 @@ var MySection = () => {
     const statusLabel = function (s) { return { pending: "待审核", approved: "已通过", rejected: "已驳回" }[s] || s; };
     const kindLabel = function (k) { return { image: "AI 图像", video: "AI 视频", "3d": "3D 生成", app: "小程序/产品", tool: "工具/插件", skill: "Skill", mcp: "MCP 工具", source: "源码包" }[k] || k; };
     const fmt = function (s) { return s ? String(s).slice(0, 16).replace("T", " ") : "—"; };
+    // 活动记录 → 跳活动页并自动打开对应面板（from=my 时面板顶部出现「返回个人中心」临时按钮）
+    window.myOpenRecord = function (id, kind) {
+      location.hash = "#activities?open=" + String(kind || "upcoming") + ":" + String(id || "") + "&from=my";
+    };
 
     // ===== 管理控制台交互（admin）=====
     function initAdmin() {
@@ -2474,10 +2702,11 @@ var MySection = () => {
       fetch("/api/my/registrations").then(function (r) { return r.json(); }),
       fetch("/api/my/works").then(function (r) { return r.json(); }),
       fetch("/api/my/level").then(function (r) { return r.json(); }),
-      fetch("/api/my/messages").then(function (r) { return r.json(); })
+      fetch("/api/my/messages").then(function (r) { return r.json(); }),
+      fetch("/api/my/activity-records").then(function (r) { return r.json(); })
     ]).then(function (rs) {
       if (cancelled || !ref.current) return;
-      var prof = rs[0], reg = rs[1], wrk = rs[2], lvl = rs[3], msg = rs[4];
+      var prof = rs[0], reg = rs[1], wrk = rs[2], lvl = rs[3], msg = rs[4], rec = rs[5];
       if (!prof.ok) {
         ref.current.innerHTML = "<div class='my-login'><div class='my-login-card'><h2>登录你的 AI 社团账户</h2><p>使用飞书账号登录后，即可查看和管理你的报名、作品与消息。</p><a class='my-login-btn' href='/login.html'>去登录</a></div></div>";
         return;
@@ -2531,34 +2760,32 @@ var MySection = () => {
           }).join("") + "</tbody></table>";
       }
       h += "</div>";
-      // ===== 管理控制台（仅 admin）=====
-      var isAdmin = u.role === "admin";
-      if (isAdmin) {
-        h += "<div class='my-sec my-admin'>" +
-          "<div class='my-sechead'><span class='t'>管理控制台</span><span class='e'>ADMIN CONSOLE · 仅管理员可见</span></div>" +
-          "<div class='adm-tabs'>" +
-            "<button class='adm-tab on' onclick=\"window.myAdminTab&&window.myAdminTab('works')\">作品审核</button>" +
-            "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核</button>" +
-            "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('resv')\">预约名单</button>" +
-            "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sys')\">提醒 / 系统</button>" +
-          "</div>" +
-          "<div id='adm-works' class='adm-panel'><div class='adm-loading'>加载中…</div></div>" +
-          "<div id='adm-regs' class='adm-panel' style='display:none'></div>" +
-          "<div id='adm-resv' class='adm-panel' style='display:none'></div>" +
-          "<div id='adm-sys' class='adm-panel' style='display:none'>" +
-            "<div class='adm-sys-row'><div><div class='adm-sys-t'>手动触发活动开始提醒扫描</div>" +
-            "<div class='adm-sys-d'>扫描「即将开始且未提醒」的预约并向预约人推送飞书 + 站内通知；正常情况每小时自动跑，这里用于测试/应急。</div></div>" +
-            "<div style='display:flex;gap:8px;align-items:center;flex:0 0 auto'><input id='adm-ahead' class='adm-input' type='number' min='1' max='720' value='24' title='提前小时数'><button class='adm-btn primary' onclick=\"window.myAdminScan&&window.myAdminScan()\">立即扫描</button></div></div>" +
-            "<div id='adm-sys-out' class='adm-sys-out'></div>" +
-          "</div>" +
-        "</div>";
+      // ===== 活动记录（预约/报名/通知按活动归并；点击跳活动页并自动打开对应面板）=====
+      var records = (rec && rec.ok && rec.data && rec.data.records) || [];
+      h += "<div class='my-sec'><div class='my-sechead'><span class='t'>活动记录</span><span class='e'>MY ACTIVITY RECORDS · 同活动通知归并</span></div>";
+      if (!records.length) {
+        h += "<div class='my-empty'>暂无活动记录——预约或报名活动后会留痕显示在这里</div>";
+      } else {
+        h += records.map(function (r) {
+          var stages = (r.stages || []).map(function (s) {
+            var icon = s.stage === "pre_start" ? "⏰" : s.stage === "signup" ? "✓" : s.stage === "reserve" ? "☐" : "·";
+            return "<li><span class='actrec-stage'>" + icon + " " + esc(s.text) + "</span><span class='actrec-time'>" + fmt(s.time) + "</span></li>";
+          }).join("");
+          var dot = r.kind === "current" ? "actrec-dot-on" : r.kind === "upcoming" ? "actrec-dot-wait" : "actrec-dot-end";
+          var badge = r.kind === "current" ? "报名" : r.kind === "upcoming" ? "预约" : "回顾";
+          return "<div class='actrec-card' onclick=\"window.myOpenRecord&&window.myOpenRecord('" + String(r.activityId).replace(/'/g, "") + "','" + esc(r.kind) + "')\">" +
+            "<div class='actrec-head'><span class='actrec-dot " + dot + "'></span><b>" + esc(r.title) + "</b>" +
+            "<span class='actrec-badge'>" + esc(badge) + "</span><span class='actrec-status'>" + esc(r.statusText || "") + "</span></div>" +
+            "<ul class='actrec-stages'>" + stages + "</ul>" +
+            "<div class='actrec-go'>查看活动 →</div></div>";
+        }).join("");
       }
+      h += "</div>";
       ref.current.innerHTML = h;
-      if (isAdmin) initAdmin();
     }).catch(function () {});
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      try { delete window.myOpenRecord; } catch (_) { window.myOpenRecord = undefined; }
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `
@@ -2612,6 +2839,21 @@ var MySection = () => {
     .my-login-btn{display:inline-block;font-size:14px;letter-spacing:2px;padding:12px 34px;border-radius:999px;background:linear-gradient(135deg,#2568d8,#173f8f);color:#fff;font-weight:600;text-decoration:none;transition:all .2s;}
     .my-login-btn:hover{filter:brightness(1.12);}
     .my-empty{color:#999;font-size:13px;padding:30px;text-align:center;background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:10px;}
+    .actrec-card{background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:14px 20px;margin-bottom:12px;cursor:pointer;transition:all .2s;}
+    .actrec-card:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,0.06);}
+    .actrec-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .actrec-head b{font-size:14px;color:#1a1a1f;}
+    .actrec-dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;}
+    .actrec-dot-on{background:#2a9d63;}
+    .actrec-dot-wait{background:#e8a13d;}
+    .actrec-dot-end{background:#c9c9c9;}
+    .actrec-badge{font-size:10px;color:#2568d8;background:rgba(37,104,216,0.08);border-radius:4px;padding:1px 8px;letter-spacing:1px;}
+    .actrec-status{font-size:11px;color:#999;margin-left:auto;}
+    .actrec-stages{list-style:none;margin:8px 0 0;padding:0;}
+    .actrec-stages li{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:#666;padding:3px 0;}
+    .actrec-stage{flex:1;min-width:0;}
+    .actrec-time{font-family:'JetBrains Mono',monospace;font-size:10px;color:#aaa;white-space:nowrap;}
+    .actrec-go{font-size:12px;color:#2568d8;margin-top:8px;}
     .my-admin{border:1px solid rgba(37,104,216,0.25);background:#fff;border-radius:12px;padding:0 0 20px;}
     .my-admin .my-sechead{border-bottom:1px solid rgba(0,0,0,0.06);}
     .my-admin .my-sechead .e{color:#c98a1b;}
@@ -2870,7 +3112,7 @@ var CommunitySection = () => {
         "</div>" +
         inlineBox +
         "</div></div>" +
-        (kids.length ? "<div class='com-cmt-kids'><i class='com-rail'></i>" + kids.map(function (r) { return cmtHtml(p, r, depth + 1); }).join("") + "</div>" : "") +
+        (kids.length ? "<div class='com-cmt-kids'>" + kids.map(function (r) { return cmtHtml(p, r, depth + 1); }).join("") + "</div>" : "") +
         "</div>";
     }
     function threadHtml(p) {
@@ -3624,16 +3866,9 @@ var CommunitySection = () => {
     .com-cmt{padding:0;}
     .com-cmt-main{display:flex;gap:8px;position:relative;padding:8px 0;border-bottom:1px solid #f2f4f6;}
     .com-cmt:last-of-type>.com-cmt-main{border-bottom:none;}
-    /* NL/推特式连贯引导线（轨道层）：回复带 .com-cmt-kids 内铺一条通高竖线（com-rail），
-       从带顶贯穿到带底——上接父头像所在行的底、下连每个孩子的肘线、尾端止于带底，天然无断点；
-       带内 .com-cmt 为 static 使竖线定位落在带上（rail 不随嵌套偏移）。 */
-    .com-cmt-kids{position:relative;margin-left:24px;}
-    .com-cmt-kids>.com-cmt{position:static;}
-    .com-rail{position:absolute;top:0;bottom:0;left:12px;width:2px;background:#e4e7eb;pointer-events:none;}
+    /* 回复层次：仅保留缩进梯度（去引导竖线/肘线，用户明确不要连线） */
+    .com-cmt-kids{margin-left:24px;}
     .com-cmt-kids .com-cmt-main{border-bottom:none;}
-    .com-cmt-kids .com-cmt-main::before{content:"";position:absolute;left:-12px;top:2px;width:12px;height:19px;border-left:2px solid #e4e7eb;border-bottom:2px solid #e4e7eb;border-bottom-left-radius:10px;}
-    /* 细节：有回复的父评论，头像下缘到回复带顶之间补线，父行全程挂线不断头 */
-    .com-cmt:has(> .com-cmt-kids)>.com-cmt-main::after{content:"";position:absolute;left:12px;top:40px;bottom:0;width:2px;background:#e4e7eb;}
     .com-cmt-quote{font-size:11px;color:#1d6fd1;background:#eef5ff;border-radius:4px;padding:1px 6px;margin-right:2px;}
     .com-inline-reply{margin-top:6px;}
     .com-inline-reply .com-thread-input textarea{background:#fff;border-color:#bcd4f0;}
@@ -4441,8 +4676,6 @@ var WorkComments = ({ workId }) => {
     var kids = c._kids || [];
     return el("div", { key: c.id },
       el("div", { style: { display: "flex", gap: 10, position: "relative", padding: "10px 0", borderBottom: depth === 0 ? "1px solid #f2f4f6" : "none" } },
-        depth > 0 ? el("div", { style: { position: "absolute", left: -12, top: 2, width: 12, height: 22, borderLeft: "2px solid #e4e7eb", borderBottom: "2px solid #e4e7eb", borderBottomLeftRadius: 10 } }) : null,
-        kids.length ? el("div", { style: { position: "absolute", left: 13, top: 44, bottom: 0, width: 2, background: "#e4e7eb" } }) : null,
         el("div", { style: avStyle }, String((c.author || "同").slice(0, 1))),
         el("div", { style: { flex: 1, minWidth: 0 } },
           el("div", { style: { fontSize: 12, color: "#666", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
@@ -4454,8 +4687,7 @@ var WorkComments = ({ workId }) => {
             el("button", { style: Object.assign({}, btnActStyle, c.liked ? { color: "#c0392b" } : {}), onClick: function () { like(c.id); } }, (c.liked ? "♥" : "♡") + " " + (c.likes || 0)),
             el("button", { style: btnActStyle, onClick: function () { if (!mine) { flash("登录后才能回复"); return; } setReplyTo(replyTo === c.id ? null : c.id); setReplyText(""); } }, "回复")),
           replyTo === c.id ? replyBox(c.id) : null)),
-      kids.length ? el("div", { style: { position: "relative", marginLeft: 24 } },
-        el("i", { style: { position: "absolute", top: 0, bottom: 0, left: 13, width: 2, background: "#e4e7eb", pointerEvents: "none" } }),
+      kids.length ? el("div", { style: { marginLeft: 24 } },
         kids.map(function (k) { return renderCmt(k, depth + 1); })) : null);
   }
   return el("div", { style: { marginTop: 64, padding: "28px 0", borderTop: "1px solid #eee" } },
@@ -4943,10 +5175,10 @@ var Footer = () => {
     style: { fontFamily: "'JetBrains Mono', monospace", opacity: 0.6 }
   }, "v1.0 · CURVED SCREEN"))));
 };
-var HASH_PAGES = { home: 1, activities: 1, community: 1, about: 1 };
+var HASH_PAGES = { home: 1, activities: 1, community: 1, about: 1, my: 1, admin: 1 };
 var App = () => {
   const [page, setPage] = React.useState(function () {
-    var h = String(window.location.hash || "").replace(/^#/, "");
+    var h = String(window.location.hash || "").replace(/^#/, "").split("?")[0]; // 支持 #activities?open=… 带参进入
     return HASH_PAGES[h] ? h : "home";
   });
   const [selectedWork, setSelectedWork] = React.useState(null);
@@ -4975,8 +5207,17 @@ var App = () => {
     return () => window.removeEventListener("navWork", handler);
   }, []);
   React.useEffect(() => {
-    const h = window.location.hash;
-    if (h === "#my") setPage("my");
+    const h = String(window.location.hash || "").replace(/^#/, "").split("?")[0];
+    if (h === "my" || h === "admin") setPage(h);
+  }, []);
+  // hash 变化驱动切页（#activities?open=… / #my / #admin 等一律生效）
+  React.useEffect(() => {
+    const onHash = () => {
+      const h = String(window.location.hash || "").replace(/^#/, "").split("?")[0];
+      if (HASH_PAGES[h]) setPage(h);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
   return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Nav, {
     onNavigate: handleNavigate,
@@ -4991,7 +5232,7 @@ var App = () => {
   })), page === "work" && selectedWork !== null && /* @__PURE__ */ React.createElement(WorkDetail, {
     workIdx: selectedWork,
     onBack: () => handleNavigate("home")
-  }), page === "activities" && /* @__PURE__ */ React.createElement(ActivitiesSection, null), page === "my" && /* @__PURE__ */ React.createElement(MySection, null), page === "community" && /* @__PURE__ */ React.createElement(CommunitySection, null), page === "join" && /* @__PURE__ */ React.createElement(JoinSection, null), /* @__PURE__ */ React.createElement(Footer, null), /* @__PURE__ */ React.createElement("style", null, `
+  }), page === "activities" && /* @__PURE__ */ React.createElement(ActivitiesSection, null), page === "my" && /* @__PURE__ */ React.createElement(MySection, null), page === "admin" && /* @__PURE__ */ React.createElement(AdminPage, null), page === "community" && /* @__PURE__ */ React.createElement(CommunitySection, null), page === "join" && /* @__PURE__ */ React.createElement(JoinSection, null), /* @__PURE__ */ React.createElement(Footer, null), /* @__PURE__ */ React.createElement("style", null, `
         /* ===== 移动端适配 ===== */
         @media (max-width: 768px) {
           .site-nav {
