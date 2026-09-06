@@ -4,6 +4,8 @@
 // 读接口对登录用户开放（member 只读）；写接口一律 adminRequired 强校验。
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { adminRequired } = require('../middleware/auth');
@@ -155,5 +157,55 @@ router.post('/community/posts/:id/pin', adminRequired, community.pinHandler);
 
 // PUT /api/admin/community/config —— 公告/轮播/分区运营
 router.put('/community/config', adminRequired, community.configPutHandler);
+
+// ===== 活动投信信箱（v32：滑块详情层投信口 → 仅管理员汇总，公开面板零留痕）=====
+
+// GET /api/admin/activities/letters —— 投信列表（按活动分组；附件经 :id/file 鉴权下载，不外泄 storage_url）
+router.get('/activities/letters', adminRequired, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT l.id, l.activity_id, a.title, l.user_id, l.name, l.dept, l.note,
+              l.file_name, l.file_size, l.storage_url, l.created_at
+       FROM activity_letters l JOIN activities a ON a.id = l.activity_id
+       ORDER BY a.kind, a.sort, l.created_at DESC`);
+    const groups = new Map();
+    for (const row of r.rows) {
+      if (!groups.has(row.activity_id)) {
+        groups.set(row.activity_id, { activityId: row.activity_id, title: row.title, total: 0, letters: [] });
+      }
+      const g = groups.get(row.activity_id);
+      g.total++;
+      g.letters.push({
+        id: row.id, userId: row.user_id, name: row.name, dept: row.dept, note: row.note,
+        fileName: row.file_name, fileSize: row.file_size, hasFile: !!row.storage_url, createdAt: row.created_at,
+      });
+    }
+    res.json(ok({ activities: [...groups.values()] }));
+  } catch (e) {
+    console.error('[admin.letters]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/admin/activities/letters/:id/file —— 投信附件下载（仅管理员；流式本地文件）
+router.get('/activities/letters/:id/file', adminRequired, async (req, res) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
+  try {
+    const r = await query(`SELECT id, file_name, storage_url FROM activity_letters WHERE id=$1`, [id]);
+    const l = r.rows[0];
+    if (!l || !l.storage_url) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '该投信没有附件'));
+    const fp = path.join(__dirname, '..', '..', 'public', l.storage_url); // storage_url 形如 /uploads/letters/x（内部生成，basename 防穿越）
+    if (!fs.existsSync(fp)) return res.status(410).json(err(ErrorCodes.NOT_FOUND, '附件文件已不存在'));
+    const safe = String(l.file_name || ('letter-' + id)).replace(/[\\/:*?"<>|\r\n]/g, '_');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="letter-${id}"; filename*=UTF-8''${encodeURIComponent(safe)}`);
+    res.setHeader('Content-Length', fs.statSync(fp).size);
+    fs.createReadStream(fp).on('error', () => res.status(500).end()).pipe(res);
+  } catch (e) {
+    console.error('[admin.letter.file]', e);
+    if (!res.headersSent) res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
 
 module.exports = router;

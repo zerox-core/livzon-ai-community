@@ -767,7 +767,19 @@ var ActivitiesSection = () => {
         h += "<div class='act-carousel'><div class='act-slide on'><span class='act-tagx'>敬请期待</span><div class='act-slide-name big'>下一场活动筹备中</div><p class='act-slide-desc'>我们正在策划下一场深度活动。</p></div></div>";
       }
       // 02 预约消息通知（编辑式日程表：大日期 + 活动名 + 类型 + 细箭头）
-      h += "<div class='act-sechead' id='act-sec-upcoming'><span class='act-secno'>02</span><span class='act-sectitle'>预约消息通知</span><span class='act-secen'>NOTIFY · 预约后消息提醒</span></div>";
+      // v32: 行点击 → 行内展开「衔枝式」滑块对比卡（概要 ⇄ 创作思路 + 投信口）
+      h += "<div class='act-sechead' id='act-sec-upcoming'><span class='act-secno'>02</span><span class='act-sectitle'>预约消息通知</span><span class='act-secen'>NOTIFY · 点击行展开详情</span></div>";
+      // v32: 活动初始思路文案库（滑块卡 after 层；按活动 id 匹配 + 通用兜底）
+      var IDEA_COPY = {
+        "ai-microfilm": "创作主题不限——拍什么、怎么拍，都由你定。推荐使用 ComfyUI 搭建 AIGC 创作流水线：文生图出分镜、图生视频出镜头、AI 配音配乐收尾。月初领主题、月末交成片，展映会上像产品发布会一样轮流播放讨论。",
+        "vibe-coding": "氛围感优先于功能正确。用最新模型现场生成一个有强烈氛围的交互网页、小游戏或视觉生成器——代码写多写少不重要，最后它跑起来的那一刻重要。",
+        "skill-hackathon": "提前一周征集方向、现场投票定题。每人独立开发一个真正能用的 skill，再交给所有人各自 agent 实测评分：写出来只是开始，被用起来才算完成。",
+        "ai-design-salon": "AI 海报、AI 音乐、AI 表情包、AI 配音、创作类 skill……每人 10-15 分钟展示并拆解完整工作流——「怎么想到的」和「怎么做到的」一起讲清楚。",
+        "frontier-talk": "邀请 Qwen、DeepSeek、InternLM 等开源模型核心贡献者与年轻研究员闭门分享。8-12 人小场，问到你懂为止。"
+      };
+      var IDEA_FALLBACK = "围绕这个方向的初始设想与启发点：不设门槛、不限玩法，把你在 AI 上最想验证的一个念头带来现场，一起把它做成真的。";
+      var ideaOf = function (a) { return IDEA_COPY[String((a && a.id) || "")] || IDEA_FALLBACK; };
+      var LETTER_ACCEPT = ".zip,.rar,.7z,.tar,.gz,.mp4,.mov,.webm,.mp3,.wav,.pdf,.docx,.xlsx,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.json,.js,.ts,.py,.csv,.html";
       h += "<div class='act-sched' id='actSched'>" + upcoming.map(function (a, ai) {
         var su = a.signup || focusSignup;
         var no = ai + 1 < 10 ? "0" + (ai + 1) : String(ai + 1);
@@ -775,6 +787,28 @@ var ActivitiesSection = () => {
           "<div class='sk-line'><span class='sk-no'>" + no + "</span><span class='sk-date'>" + esc(dateNum(a.dateLabel)) + "</span>" +
           "<div class='sk-main'><div class='sk-name'>" + esc(a.name) + "</div><div class='sk-sub'>" + esc(a.dateLabel) + " · " + esc(a.location) + "</div></div>" +
           "<span class='sk-type'>" + esc(a.tag || "") + "</span><span class='sk-arrow'>→</span></div>" +
+          "<div class='sk-detail'><div class='skc'>" +
+          "<div class='skc-after'>" +
+            "<div class='skc-eyebrow'>IDEA · 创作思路</div>" +
+            "<p class='skc-idea'>" + esc(ideaOf(a)) + "</p>" +
+            "<div class='skc-letter'>" +
+              "<div class='skc-l-head'><span>LETTER BOX</span><span class='skc-l-sub'>投信口 · 私信主办方，不公开展示</span></div>" +
+              "<textarea class='skc-l-note' rows='3' maxlength='1000' placeholder='想说的、想问的、想提前投递的想法…（选填）'></textarea>" +
+              "<div class='skc-l-file'><label class='skc-l-pick'>选择文件<input class='skc-l-input' type='file' accept='" + LETTER_ACCEPT + "'></label><span class='skc-l-fname'>未选择文件（可选 · ≤20MB）</span></div>" +
+              "<div class='skc-l-actions'><button type='button' class='skc-l-send' data-id='" + esc(a.id || "") + "'>投信 →</button><span class='skc-l-state'></span></div>" +
+            "</div>" +
+          "</div>" +
+          "<div class='skc-before'>" +
+            "<div class='skc-b-eyebrow'>OVERVIEW · 活动概要</div>" +
+            "<div class='skc-b-date'>" + esc(dateNum(a.dateLabel)) + "</div>" +
+            "<div class='skc-b-name'>" + esc(a.name) + "</div>" +
+            "<div class='skc-b-meta'>" + esc(a.dateLabel) + " · " + esc(a.location) + " · " + esc(a.tag || "") + "</div>" +
+            (a.desc ? "<p class='skc-b-desc'>" + esc(a.desc) + "</p>" : "") +
+            "<div class='skc-b-btnrow'><button type='button' class='sk-detail-btn' data-reserve='" + esc(a.id || "") + "'" + (su ? "" : " disabled") + ">" + (su ? "预约报名" : "联系群内报名") + "</button></div>" +
+            "<div class='skc-hint'>⇔ 拖动滑块，看这个活动的创作思路</div>" +
+          "</div>" +
+          "<div class='skc-line'><span class='skc-handle'>⇔</span></div>" +
+          "</div></div>" +
           "</div>";
       }).join("") + "</div>";
       // 03 回顾展区（惯性拖拽展墙 + 聚光 + 类型筛选）
@@ -1049,14 +1083,97 @@ var ActivitiesSection = () => {
         window.addEventListener("scroll", onRailScroll, { passive: true });
         uiCleanups.push(function () { window.removeEventListener("scroll", onRailScroll); });
         onRailScroll();
-        // 02 日程行点击 → 详情报名面板
+        // 02 日程行：点击行 → 行内展开滑块卡（v32）；卡内按钮各归其位
         var schedEl = document.getElementById("actSched");
         if (schedEl) schedEl.addEventListener("click", function (e) {
-          if (e.target && e.target.closest && e.target.closest("button")) return;
-          var row = e.target.closest(".sk-row");
+          var t = e.target;
+          if (!t || !t.closest) return;
+          var sendBtn = t.closest(".skc-l-send");
+          if (sendBtn) { if (window.__actLetter) window.__actLetter(sendBtn); return; }
+          var rsv = t.closest("[data-reserve]");
+          if (rsv && !rsv.disabled) { if (window.actPanel) window.actPanel("upcoming", rsv.getAttribute("data-reserve") || ""); return; }
+          if (t.closest("button") || t.closest(".skc-l-pick")) return;
+          if (t.closest(".skc")) return; // 卡内（表单/滑块）点击不折叠
+          var row = t.closest(".sk-row");
           if (!row) return;
-          if (window.actPanel) window.actPanel("upcoming", row.getAttribute("data-id") || "");
+          var open = row.getAttribute("data-open") === "1";
+          Array.prototype.forEach.call(schedEl.querySelectorAll(".sk-row"), function (r2) { r2.setAttribute("data-open", "0"); });
+          row.setAttribute("data-open", open ? "0" : "1");
         });
+        // v32 滑块对比卡（衔枝 Twig 式）：pointer 拖动竖线改变揭示比例 --x
+        Array.prototype.forEach.call(ref.current.querySelectorAll(".skc"), function (cardEl) {
+          var lineEl = cardEl.querySelector(".skc-line");
+          if (!lineEl) return;
+          var dragging = false;
+          var setX = function (pct, animate) {
+            var v = Math.max(4, Math.min(96, pct));
+            cardEl.classList.toggle("skc-drag", !animate);
+            cardEl.style.setProperty("--x", v + "%");
+          };
+          var fromEvent = function (e) {
+            var r = cardEl.getBoundingClientRect();
+            return (e.clientX - r.left) / r.width * 100;
+          };
+          lineEl.addEventListener("pointerdown", function (e) {
+            dragging = true; e.preventDefault();
+            if (lineEl.setPointerCapture) { try { lineEl.setPointerCapture(e.pointerId); } catch (_) {} }
+            setX(fromEvent(e), false);
+          });
+          lineEl.addEventListener("pointermove", function (e) { if (dragging) setX(fromEvent(e), false); });
+          var endDrag = function () { dragging = false; };
+          lineEl.addEventListener("pointerup", endDrag);
+          lineEl.addEventListener("pointercancel", endDrag);
+          // 点手柄（没拖动时）→ 平滑摆到另一态
+          var handleEl = cardEl.querySelector(".skc-handle");
+          if (handleEl) handleEl.addEventListener("click", function (e) {
+            e.stopPropagation();
+            var cur = parseFloat(cardEl.style.getPropertyValue("--x")) || 76;
+            setX(cur > 50 ? 12 : 76, true);
+          });
+        });
+        // v32 投信口：文件选择显示名 + 提交
+        Array.prototype.forEach.call(ref.current.querySelectorAll(".skc-letter"), function (box) {
+          var inp = box.querySelector(".skc-l-input");
+          var fnameEl = box.querySelector(".skc-l-fname");
+          if (inp && fnameEl) inp.addEventListener("change", function () {
+            fnameEl.textContent = (inp.files && inp.files[0]) ? inp.files[0].name : "未选择文件（可选 · ≤20MB）";
+          });
+        });
+        // 投信提交（multipart：note + origname + 可选 file；私信仅进管理员后台，公开面板零留痕）
+        window.__actLetter = function (btn) {
+          var box = btn.closest(".skc-letter");
+          if (!box || btn.disabled) return;
+          var state = box.querySelector(".skc-l-state");
+          var note = box.querySelector(".skc-l-note");
+          var inp = box.querySelector(".skc-l-input");
+          var fnameEl = box.querySelector(".skc-l-fname");
+          var file = (inp && inp.files && inp.files[0]) ? inp.files[0] : null;
+          var noteV = String((note && note.value) || "").trim();
+          if (!noteV && !file) { if (state) state.textContent = "写点什么，或选一个文件再投"; return; }
+          if (file && file.size > 20 * 1024 * 1024) { if (state) state.textContent = "文件超过 20MB 上限"; return; }
+          btn.disabled = true; btn.textContent = "投递中…";
+          var fd = new FormData();
+          fd.append("note", noteV);
+          if (file) { fd.append("origname", file.name); fd.append("file", file); }
+          fetch("/api/activities/" + encodeURIComponent(btn.getAttribute("data-id") || "") + "/letters", { method: "POST", body: fd })
+            .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+            .then(function (res) {
+              if (res.s === 401) {
+                if (state) state.innerHTML = "投信需先登录 · <a href='/login.html'>去登录 →</a>";
+                btn.disabled = false; btn.textContent = "投信 →"; return;
+              }
+              if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error && res.j.error.message) || "failed");
+              if (state) state.textContent = "已投递，主办方会在后台看到";
+              if (note) note.value = "";
+              if (inp) inp.value = "";
+              if (fnameEl) fnameEl.textContent = "未选择文件（可选 · ≤20MB）";
+              btn.disabled = false; btn.textContent = "再投一封 →";
+            })
+            .catch(function () {
+              if (state) state.textContent = "投递失败，请稍后再试";
+              btn.disabled = false; btn.textContent = "投信 →";
+            });
+        };
         // 03 拖拽展墙：惯性 + 边界回弹 + 聚光 + 进度尺
         var wall = document.getElementById("archWall");
         var track = document.getElementById("archTrack");
@@ -2109,12 +2226,51 @@ var ActivitiesSection = () => {
     .sk-arrow{font-size:18px;color:#bbb;transition:transform .6s cubic-bezier(.22,1,.36,1),color .6s;}
     .sk-row:hover .sk-arrow{transform:translateX(8px);color:#1a2b4a;}
     .sk-detail{max-height:0;overflow:hidden;transition:max-height .7s cubic-bezier(.22,1,.36,1);}
-    .sk-row[data-open='1'] .sk-detail{max-height:260px;}
+    .sk-row[data-open='1'] .sk-detail{max-height:720px;}
     .sk-detail p{font-size:14px;color:#666;line-height:1.9;max-width:760px;margin:0 0 18px 162px;}
     .sk-detail .sk-signup{margin:0 0 30px 162px;display:inline-block;font-size:12px;letter-spacing:2px;padding:9px 26px;border-radius:2px;border:1px solid #1a2b4a;color:#1a2b4a;background:transparent;cursor:pointer;transition:background .4s,color .4s;}
     .sk-detail .sk-signup:hover{background:#1a2b4a;color:#fff;}
     .sk-detail .sk-signup:disabled{border-color:#ddd;color:#bbb;cursor:not-allowed;}
+    /* v32 · 滑块对比卡（衔枝 Twig 式：活动概要 ⇄ 创作思路 + 投信口） */
+    .sk-row[data-open='1'] .sk-arrow{transform:rotate(90deg);color:#1a2b4a;}
+    .skc{position:relative;--x:76%;display:flex;flex-direction:column;margin:6px 0 40px 162px;background:#131f33;border-radius:3px;overflow:hidden;}
+    .skc-after{position:relative;order:2;padding:36px 44px 32px;}
+    .skc-eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#c8a45c;margin-bottom:14px;}
+    .skc-idea{font-family:'Noto Serif SC',serif;font-size:14.5px;color:#e9e5db;line-height:2;letter-spacing:.5px;max-width:640px;margin:0 0 26px;}
+    .skc-letter{border-top:1px solid rgba(233,229,219,0.14);padding-top:20px;max-width:640px;}
+    .skc-l-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+    .skc-l-head span:first-child{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#c8a45c;}
+    .skc-l-sub{font-size:11px;color:#8b8fa0;letter-spacing:1px;}
+    .skc-l-note{width:100%;box-sizing:border-box;background:rgba(255,255,255,0.05);border:1px solid rgba(233,229,219,0.22);color:#e9e5db;font-family:inherit;font-size:13px;line-height:1.8;padding:10px 14px;border-radius:2px;resize:vertical;outline:none;transition:border-color .3s;}
+    .skc-l-note:focus{border-color:rgba(200,164,92,0.7);}
+    .skc-l-note::placeholder{color:#7d8296;}
+    .skc-l-file{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap;}
+    .skc-l-pick{font-size:11px;letter-spacing:2px;padding:7px 16px;border:1px solid rgba(233,229,219,0.35);border-radius:2px;color:#e9e5db;cursor:pointer;transition:border-color .3s,color .3s;}
+    .skc-l-pick:hover{border-color:#c8a45c;color:#fff;}
+    .skc-l-fname{font-size:11px;color:#8b8fa0;letter-spacing:1px;word-break:break-all;}
+    .skc-l-actions{display:flex;align-items:center;gap:16px;margin-top:14px;}
+    .skc-l-send{font-size:12px;letter-spacing:2px;padding:9px 24px;border-radius:2px;border:1px solid #c8a45c;color:#c8a45c;background:transparent;cursor:pointer;transition:background .4s,color .4s;}
+    .skc-l-send:hover{background:#c8a45c;color:#131f33;}
+    .skc-l-send:disabled{opacity:.55;cursor:wait;}
+    .skc-l-state{font-size:11px;color:#8b8fa0;letter-spacing:1px;}
+    .skc-l-state a{color:#c8a45c;}
+    .skc-before{position:absolute;inset:0;order:1;z-index:2;background:#faf9f6;padding:36px 44px;display:flex;flex-direction:column;justify-content:center;clip-path:inset(0 calc(100% - var(--x)) 0 0);transition:clip-path .7s cubic-bezier(.22,1,.36,1);}
+    .skc-b-eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#9a917f;margin-bottom:12px;}
+    .skc-b-date{font-family:'Noto Serif SC',serif;font-size:30px;font-weight:300;color:#111;letter-spacing:1px;line-height:1;}
+    .skc-b-name{font-family:'Noto Serif SC',serif;font-size:21px;color:#1a1a1f;letter-spacing:1.5px;margin-top:12px;}
+    .skc-b-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:#999;letter-spacing:1px;margin-top:10px;}
+    .skc-b-desc{font-size:13px;color:#666;line-height:1.9;max-width:600px;margin:14px 0 0;}
+    .skc-b-btnrow{margin-top:22px;}
+    .sk-detail-btn{display:inline-block;font-size:12px;letter-spacing:2px;padding:10px 28px;border-radius:2px;border:1px solid #1a2b4a;color:#1a2b4a;background:transparent;cursor:pointer;transition:background .4s,color .4s;}
+    .sk-detail-btn:hover{background:#1a2b4a;color:#fff;}
+    .sk-detail-btn:disabled{border-color:#ddd;color:#bbb;cursor:not-allowed;}
+    .skc-hint{font-size:11px;color:#b3ab99;letter-spacing:2px;margin-top:18px;}
+    .skc-line{position:absolute;top:0;bottom:0;left:var(--x);width:2px;z-index:3;cursor:ew-resize;background:linear-gradient(180deg,rgba(200,164,92,0),rgba(200,164,92,0.85) 18%,rgba(200,164,92,0.85) 82%,rgba(200,164,92,0));transition:left .7s cubic-bezier(.22,1,.36,1);touch-action:none;}
+    .skc-handle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;background:#faf9f6;border:1.5px solid #c8a45c;color:#8a6d2f;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:ew-resize;box-shadow:0 2px 14px rgba(0,0,0,0.3);}
+    .skc-drag .skc-before,.skc-drag .skc-line{transition:none;}
     @media(max-width:900px){.sk-date{font-size:30px;min-width:86px;}.sk-line{gap:16px;flex-wrap:wrap;}.sk-detail p,.sk-detail .sk-signup{margin-left:0;}}
+    @media(max-width:900px){.skc{margin-left:0;}.skc-after{padding:28px 24px 24px;}.skc-before{padding:28px 24px;}}
+    @media(max-width:760px){.skc-before{position:relative;inset:auto;order:1;clip-path:none;display:block;background:#f5f4f0;margin:0 0 12px;}.skc-line{display:none;}}
     /* 03 回顾展区 · 拖拽展墙 */
     .arch-chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:26px;}
     .arch-chips .chip{font-size:11px;letter-spacing:2px;padding:7px 18px;border:1px solid rgba(0,0,0,0.14);background:transparent;color:#888;cursor:pointer;border-radius:2px;transition:all .5s cubic-bezier(.22,1,.36,1);}
