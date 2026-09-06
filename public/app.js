@@ -703,7 +703,7 @@ var ActivitiesSection = () => {
       var past = data.past || [];
       var types = data.types || [];
       var h = "";
-      h += "<div class='act-hero'><span class='act-hero-wm' aria-hidden='true'>玩</span><div class='act-eyebrow act-hero-in hi-1'>活动大厅</div><div class='act-title-wrap act-hero-in hi-2'><h1 class='act-title-lg' id='actPhysicsTitle' aria-label='玩出来的 AI'><!-- 字符由物理引擎注入 --></h1></div><p class='act-sub act-hero-in hi-3'>" + esc(data.motto || "") + "</p><button class='reset-btn act-hero-in hi-5' id='actResetBtn' type='button'>重置标题</button><div class='act-start act-hero-in hi-6' aria-hidden='true'>START<span class='act-start-cursor'></span></div></div>";
+      h += "<div class='act-hero'><span class='act-hero-wm' aria-hidden='true'>玩</span><div class='act-title-wrap act-hero-in hi-2'><h1 class='act-title-lg' id='actPhysicsTitle' aria-label='玩出来的 AI'><!-- 字符由物理引擎注入 --></h1></div><p class='act-sub act-hero-in hi-3'>" + esc(data.motto || "") + "</p><button class='reset-btn act-hero-in hi-5' id='actResetBtn' type='button'>重置标题</button></div>";
       var focusSignup = focus && focus.signup ? focus.signup : "";
       var signupBtnHtml = function (url, cls, label) {
         return url
