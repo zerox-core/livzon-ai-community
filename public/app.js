@@ -1609,8 +1609,8 @@ var ActivitiesSection = () => {
           document.body.removeChild(measurer);
 
           // Starting positions (world coords, center of char)
-          // v26: 手机档整行在容器内水平居中；桌面档保持原左对齐布局不变
-          const startX = containerWorldLeft + (isMobile ? Math.max(0, (containerRect.width - totalWidth) / 2) : 0);
+          // v26: 整行从容器左缘起排（与 eyebrow/motto 对齐）；窄屏靠自适应字号保证不出视口
+          const startX = containerWorldLeft;
           const startY = containerWorldTop + charHeight / 2;
 
           let cursorX = startX;
