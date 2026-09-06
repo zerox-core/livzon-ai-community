@@ -703,7 +703,7 @@ var ActivitiesSection = () => {
       var past = data.past || [];
       var types = data.types || [];
       var h = "";
-      h += "<div class='act-hero'><span class='act-hero-wm' aria-hidden='true'>玩</span><div class='act-eyebrow act-hero-in hi-1'>ACTIVITIES · 活动大厅</div><div class='act-title-wrap act-hero-in hi-2'><h1 class='act-title-lg' id='actPhysicsTitle' aria-label='玩出来的 AI'><!-- 字符由物理引擎注入 --></h1></div><p class='act-sub act-hero-in hi-3'>" + esc(data.motto || "") + "</p><button class='reset-btn act-hero-in hi-5' id='actResetBtn' type='button'>重置标题</button><div class='act-start act-hero-in hi-6' aria-hidden='true'>START<span class='act-start-cursor'></span></div></div>";
+      h += "<div class='act-hero'><span class='act-hero-wm' aria-hidden='true'>玩</span><div class='act-eyebrow act-hero-in hi-1'>活动大厅</div><div class='act-title-wrap act-hero-in hi-2'><h1 class='act-title-lg' id='actPhysicsTitle' aria-label='玩出来的 AI'><!-- 字符由物理引擎注入 --></h1></div><p class='act-sub act-hero-in hi-3'>" + esc(data.motto || "") + "</p><button class='reset-btn act-hero-in hi-5' id='actResetBtn' type='button'>重置标题</button><div class='act-start act-hero-in hi-6' aria-hidden='true'>START<span class='act-start-cursor'></span></div></div>";
       var focusSignup = focus && focus.signup ? focus.signup : "";
       var signupBtnHtml = function (url, cls, label) {
         return url
@@ -1021,6 +1021,23 @@ var ActivitiesSection = () => {
           e.preventDefault();
           el.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth" });
         });
+        // v29: 手机档横向胶囊条支持滚轮/拖动横滑（IAB 与鼠标环境没有触摸手势）
+        if (railEl) railEl.addEventListener("wheel", function (e) {
+          if (railEl.scrollWidth <= railEl.clientWidth) return;
+          var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          if (!d) return;
+          e.preventDefault();
+          railEl.scrollLeft += d;
+        }, { passive: false });
+        if (railEl) {
+          var railDragX = null, railDragStart = 0;
+          railEl.addEventListener("pointerdown", function (e) { if (railEl.scrollWidth > railEl.clientWidth) { railDragX = e.clientX; railDragStart = railEl.scrollLeft; } });
+          railEl.addEventListener("pointermove", function (e) { if (railDragX !== null) railEl.scrollLeft = railDragStart - (e.clientX - railDragX); });
+          var railDragEnd = function () { railDragX = null; };
+          railEl.addEventListener("pointerup", railDragEnd);
+          railEl.addEventListener("pointercancel", railDragEnd);
+          railEl.addEventListener("pointerleave", railDragEnd);
+        }
         var onRailScroll = function () {
           var best = -1;
           railSecIds.forEach(function (id, i) {
@@ -2011,7 +2028,7 @@ var ActivitiesSection = () => {
     return function () { cancelled = true; if (engineCleanup) { engineCleanup(); engineCleanup = null; } uiCleanups.forEach(function (fn) { try { fn(); } catch (e) {} }); };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `
-    .act-hero .act-eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:3px;color:#999;margin-bottom:16px;font-weight:400;}
+    .act-hero .act-eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:3px;color:#83837c;margin-bottom:16px;font-weight:400;}
     .act-title-wrap{position:relative;min-height:118px;padding-top:8px;}
     .act-title-lg{font-family:'Noto Serif SC',serif;font-size:clamp(42px,6vw,72px);font-weight:300;letter-spacing:8px;line-height:1.2;margin:0;position:relative;z-index:1;white-space:nowrap;}
     .act-char{display:block;cursor:pointer;transform-origin:center center;will-change:transform;position:absolute;left:0;top:0;z-index:2;}
@@ -2024,8 +2041,8 @@ var ActivitiesSection = () => {
     /* ===== v10 活动大厅（低调大气版）===== */
     .act-hero{min-height:calc(100vh - 260px);display:flex;flex-direction:column;justify-content:center;}
     .act-rail{position:sticky;top:70px;z-index:40;display:flex;gap:36px;align-items:center;padding:18px 0 16px;background:rgba(248,248,246,0.92);backdrop-filter:blur(8px);border-bottom:1px solid rgba(0,0,0,0.06);}
-    .rail-link{display:inline-flex;align-items:baseline;gap:8px;font-size:12px;letter-spacing:2px;color:#999;text-decoration:none;transition:color .5s cubic-bezier(.22,1,.36,1);position:relative;padding-bottom:14px;}
-    .rail-link .rail-no{font-family:'JetBrains Mono',monospace;font-size:10px;color:#bbb;}
+    .rail-link{display:inline-flex;align-items:baseline;gap:8px;font-size:12px;letter-spacing:2px;color:#82827c;text-decoration:none;transition:color .5s cubic-bezier(.22,1,.36,1);position:relative;padding-bottom:14px;}
+    .rail-link .rail-no{font-family:'JetBrains Mono',monospace;font-size:10px;color:#989892;}
     .rail-link.on{color:#111;}
     .rail-link.on .rail-no{color:#1a2b4a;}
     .rail-link::after{content:"";position:absolute;left:0;right:100%;bottom:0;height:1px;background:#1a2b4a;transition:right .6s cubic-bezier(.22,1,.36,1);}
@@ -2215,8 +2232,10 @@ var ActivitiesSection = () => {
     .act-hero{background-image:linear-gradient(rgba(0,0,0,0.026) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,0.026) 1px,transparent 1px);background-size:60px 60px;}
     .act-hero-wm{position:absolute;right:-1%;top:50%;transform:translateY(-52%);font-family:'Noto Serif SC',serif;font-size:clamp(260px,34vw,520px);font-weight:500;line-height:1;color:rgba(0,0,0,0.035);pointer-events:none;user-select:none;z-index:0;}
     .act-hero .act-eyebrow,.act-hero .act-sub{position:relative;z-index:1;}
-    .act-start{position:absolute;left:0;bottom:26px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:5px;color:#c9c9c4;z-index:1;display:flex;align-items:center;gap:10px;}
-    .act-start-cursor{display:inline-block;width:1px;height:14px;background:#c9c9c4;animation:actCursorBlink 1.2s steps(1) infinite;}
+    .act-start{position:absolute;left:0;bottom:26px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:5px;color:#9b9b93;z-index:1;display:flex;align-items:center;gap:10px;}
+    .act-start-cursor{display:inline-block;width:1px;height:14px;background:#9b9b93;animation:actCursorBlink 1.2s steps(1) infinite;}
+    /* 手机档 START 提示随流排布，避免与收紧后的 motto 叠字 */
+    @media(max-width:640px){.act-start{position:static;margin-top:16px;}}
     @keyframes actCursorBlink{0%,50%{opacity:1;}51%,100%{opacity:0;}}
     .act-hero-in{opacity:0;transform:translateY(18px);animation:actHeroIn .8s cubic-bezier(.22,1,.36,1) both;}
     .hi-1{animation-delay:.1s;}.hi-2{animation-delay:.28s;}.hi-3{animation-delay:.46s;}.hi-4{animation-delay:.64s;}.hi-5{animation-delay:.8s;}.hi-6{animation-delay:1.15s;}
