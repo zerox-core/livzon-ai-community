@@ -2137,6 +2137,8 @@ var ActivitiesSection = () => {
     @media(max-width:600px){.act-types{grid-template-columns:1fr;}}
     /* ===== v26 手机端（≤640px）集中适配 ===== */
     @media(max-width:640px){
+      /* 标题区整体上移：去掉 vh 最小高度的垂直居中 */
+      .act-hero{min-height:0;justify-content:flex-start;padding:6px 0 30px;}
       /* 侧栏导航：竖排叠字改横向滑动条 */
       .act-rail{gap:18px;padding:12px 0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
       .act-rail::-webkit-scrollbar{display:none;}
