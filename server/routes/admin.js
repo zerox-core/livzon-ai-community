@@ -10,6 +10,7 @@ const { adminRequired } = require('../middleware/auth');
 const community = require('./community');
 const { LarkClient } = require('../lark-client');
 const { runReminders } = require('../lib/reminders');
+const { sanitizeProfile } = require('../lib/signup-form');
 
 const router = express.Router();
 const lark = new LarkClient(process.env);
@@ -134,11 +135,11 @@ router.get('/activities/reservations', adminRequired, async (req, res) => {
   }
 });
 
-// GET /api/admin/activities/signups —— 报名名单（正式活动，按活动分组，含备用联系方式）
+// GET /api/admin/activities/signups —— 报名名单（正式活动，按活动分组，含联系方式/上传/自定义字段）
 router.get('/activities/signups', adminRequired, async (req, res) => {
   try {
     const r = await query(
-      `SELECT s.id, s.activity_id, a.title, s.user_id, s.name, s.dept, s.contact, s.note, s.created_at
+      `SELECT s.id, s.activity_id, a.title, s.user_id, s.name, s.dept, s.contact, s.upload, s.response, s.created_at
        FROM activity_signups s JOIN activities a ON a.id = s.activity_id
        ORDER BY a.kind, a.sort, s.created_at`);
     const groups = new Map();
@@ -148,11 +149,29 @@ router.get('/activities/signups', adminRequired, async (req, res) => {
       }
       const g = groups.get(row.activity_id);
       g.total++;
-      g.signups.push({ id: row.id, userId: row.user_id, name: row.name, dept: row.dept, contact: row.contact, note: row.note, createdAt: row.created_at });
+      g.signups.push({ id: row.id, userId: row.user_id, name: row.name, dept: row.dept, contact: row.contact,
+        upload: row.upload || {}, response: row.response || {}, createdAt: row.created_at });
     }
     res.json(ok({ activities: [...groups.values()] }));
   } catch (e) {
     console.error('[admin.signups]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// PUT /api/admin/activities/:id/signup-form —— 保存报名模板（模块化 profile，服务端净化）
+router.put('/activities/:id/signup-form', adminRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  if (!id) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
+  try {
+    const profile = sanitizeProfile(req.body ? req.body.profile : {});
+    await query(
+      `INSERT INTO activity_signup_forms (activity_id, profile, updated_at) VALUES ($1,$2,now())
+       ON CONFLICT (activity_id) DO UPDATE SET profile=$2, updated_at=now()`,
+      [id, JSON.stringify(profile)]);
+    res.json(ok(profile));
+  } catch (e) {
+    console.error('[admin.signup-form.put]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

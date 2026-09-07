@@ -10,13 +10,16 @@ const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { userSnapshot } = require('../lib/community-core');
+const { userSnapshot, utf8Field } = require('../lib/community-core');
 const { buildReminderCard } = require('../lib/reminders');
 const { LarkClient } = require('../lark-client');
+const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
 
 const router = express.Router();
 const lark = new LarkClient(process.env);
 const DATA_PATH = path.join(__dirname, '..', '..', 'public', 'data', 'activities.json');
+const SIGNUP_UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'signup');
+const signupMaxMb = () => parseInt(process.env.ARTIFACT_MAX_MB || '50', 10);
 
 function readJsonMeta() {
   try {
@@ -164,18 +167,48 @@ router.post('/:id/reserve', authRequired, async (req, res) => {
   }
 });
 
+// GET /api/activities/:id/signup-form —— 该活动报名模板（公开；无配置返回默认模板）
+router.get('/:id/signup-form', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').slice(0, 64);
+    const r = await query(`SELECT profile FROM activity_signup_forms WHERE activity_id=$1`, [id]);
+    res.json(ok(sanitizeProfile(r.rows[0] && r.rows[0].profile) || DEFAULT_PROFILE()));
+  } catch (e) {
+    console.error('[activities.signup-form]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// 报名文件上传（通用，不限类型；去 work/kind/所有权绑定）→ {url,filename,size}
+function getSignupUploadMw() {
+  try {
+    const multer = require('multer');
+    return multer({ storage: multer.memoryStorage(), limits: { fileSize: signupMaxMb() * 1024 * 1024 } }).single('file');
+  } catch (_) { return null; }
+}
+router.post('/:id/signup/upload', authRequired, (req, res) => {
+  const mw = getSignupUploadMw();
+  if (!mw) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, '上传未启用：请在 server/ 执行 npm install multer'));
+  mw(req, res, async (e) => {
+    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.code === 'LIMIT_FILE_SIZE' ? `文件超过 ${signupMaxMb()}MB 上限` : e.message));
+    const f = req.file;
+    if (!f) return res.status(400).json(err(ErrorCodes.VALIDATION, '缺少文件字段 file'));
+    const orig = utf8Field(String(f.originalname || '')).slice(0, 255).replace(/[\\/:*?"<>|\r\n]/g, '_');
+    const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
+    const fname = 'su-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7) + (ext ? '.' + ext : '');
+    try { fs.mkdirSync(SIGNUP_UPLOAD_DIR, { recursive: true }); } catch (_) {}
+    await fs.promises.writeFile(path.join(SIGNUP_UPLOAD_DIR, fname), f.buffer);
+    res.status(201).json(ok({ url: '/uploads/signup/' + fname, filename: orig, size: f.size }));
+  });
+});
+
 // POST /api/activities/:id/signup —— 正式活动报名（authRequired；仅 kind='current' 可报）
-// body: { name?, dept?, contact?, note? }  姓名/部门默认登录带出但允许覆写；contact=备用联系方式（选填）
-// UNIQUE(user_id,activity_id) 幂等：重复提交 200 repeated
+// body: { contact?, upload?, response? }  姓名/部门自动取登录态（不二次填）；字段按活动模板 profile 校验
 router.post('/:id/signup', authRequired, async (req, res) => {
   const id = String(req.params.id || '').slice(0, 64);
-  const rules = {
-    name:    { type: 'string', max: 50 },
-    dept:    { type: 'string', max: 100 },
-    contact: { type: 'string', max: 100 },
-    note:    { type: 'string', max: 500 },
-  };
-  const { valid, errors, casted } = checkRules(req.body || {}, rules);
+  const body = req.body || {};
+  const rules = { contact: { type: 'string', max: 100 } };
+  const { valid, errors, casted } = checkRules(body, rules);
   if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
   try {
     const a = await query(`SELECT id, kind, title, location, date_label FROM activities WHERE id=$1`, [id]);
@@ -183,13 +216,29 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     if (a.rows[0].kind !== 'current') {
       return res.status(400).json(err(ErrorCodes.VALIDATION, '该活动尚未开放正式报名（请预约消息通知）'));
     }
-    const snap = await userSnapshot(req); // 姓名/部门登录带出，允许覆写（部门测试企业可能为空→手填）
+    const pf = await query(`SELECT profile FROM activity_signup_forms WHERE activity_id=$1`, [id]);
+    const profile = sanitizeProfile(pf.rows[0] && pf.rows[0].profile) || DEFAULT_PROFILE();
+    // 校验必填自定义字段（字段不存在=用默认模板则允许任意 response，宽松）
+    if (profile.fields && profile.fields.length) {
+      const vr = validateResponse(profile, body.response);
+      if (!vr.valid) return res.status(400).json(err(ErrorCodes.VALIDATION, vr.errors.join('；')));
+    }
+    if (profile.team && profile.team.enabled && !String(body.response && body.response.__team || '').trim()) {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, `「${profile.team.label}」为必填`));
+    }
+    if (profile.needUpload && !(body.upload && body.upload.url)) {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '请上传作品文件'));
+    }
+    const snap = await userSnapshot(req);
+    const upload = body.upload && typeof body.upload === 'object'
+      ? { filename: String(body.upload.filename || '').slice(0, 255), size: Number(body.upload.size) || 0, storage_url: String(body.upload.url || '').slice(0, 500) }
+      : {};
+    const response = body.response && typeof body.response === 'object' ? body.response : {};
     const r = await query(
-      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note, upload, response)
+       VALUES ($1,$2,$3,$4,$5,'',$6,$7)
        ON CONFLICT (user_id, activity_id) DO NOTHING RETURNING id`,
-      [id, req.session.userId, (casted.name || '').trim() || snap.name, (casted.dept || '').trim() || snap.dept,
-       (casted.contact || '').trim(), casted.note || '']);
+      [id, req.session.userId, snap.name, snap.dept, (casted.contact || '').trim(), JSON.stringify(upload), JSON.stringify(response)]);
     if (!r.rows.length) {
       return res.json(ok({ signedUp: true, repeated: true, message: '您已报名过该活动' }));
     }
