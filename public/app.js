@@ -732,8 +732,13 @@ var AdminPage = () => {
         if (!acts.length) { el.innerHTML = "<div class='my-empty'>暂无报名</div>"; return; }
         el.innerHTML = acts.map(function (g) {
           return "<div class='adm-resv-grp'><div class='adm-resv-h'>" + esc(g.title) + " <span class='adm-resv-c'>" + g.total + " 人</span></div>" +
-            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>备用联系方式</th><th>参与期待</th><th>报名时间</th></tr></thead><tbody>" +
-            g.signups.map(function (x) { return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
+            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>备用联系方式</th><th>作品文件</th><th>自定义字段</th><th>报名时间</th></tr></thead><tbody>" +
+            g.signups.map(function (x) {
+              var resp = x.response ? Object.keys(x.response).filter(function (k) { return k !== '__team'; }).map(function (k) { return esc(k) + "：" + esc(String(x.response[k] || "")); }).join("<br>") : "";
+              if (x.response && x.response.__team) resp = (resp ? resp + "<br>" : "") + "组队：" + esc(x.response.__team);
+              var up = (x.upload && x.upload.storage_url) ? "<a class='adm-link' href='" + esc(x.upload.storage_url) + "' target='_blank' rel='noopener'>" + esc(x.upload.filename || "文件") + "</a>" : "—";
+              return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + up + "</td><td style='max-width:260px'>" + (resp || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>";
+            }).join("") +
             "</tbody></table></div>";
         }).join("");
       }).catch(function () {});
@@ -741,7 +746,7 @@ var AdminPage = () => {
     function initAdmin() {
       loadWorks();
       window.myAdminTab = function (t) {
-        ["works", "regs", "resv", "sgn", "sys"].forEach(function (k) {
+        ["works", "regs", "resv", "sgn", "form", "sys"].forEach(function (k) {
           var el = document.getElementById("adm-" + k);
           if (el) el.style.display = k === t ? "" : "none";
         });
@@ -752,6 +757,7 @@ var AdminPage = () => {
         if (t === "regs" && (document.getElementById("adm-regs") && !document.getElementById("adm-regs").dataset.loaded)) loadRegs();
         if (t === "resv" && (document.getElementById("adm-resv") && !document.getElementById("adm-resv").dataset.loaded)) loadResv();
         if (t === "sgn" && (document.getElementById("adm-sgn") && !document.getElementById("adm-sgn").dataset.loaded)) loadSignups();
+        if (t === "form") wrapFormEditor();
       };
       window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
       window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
@@ -768,6 +774,114 @@ var AdminPage = () => {
           }).catch(function () { if (out) out.innerHTML = "<div class='adm-scan-err'>网络异常</div>"; });
       };
     }
+    // ===== 报名表单构建器（管理端按活动配置模板）=====
+    var formState = { activityId: '', profile: null };
+    var AF_TYPES = ['text', 'textarea', 'select', 'radio', 'checkbox', 'number', 'date'];
+    function afDefault() { return { contact: true, needUpload: false, deadline: '', team: { enabled: false, label: '组队情况', options: ['单人', '2-3人'] }, rules: '', fields: [] }; }
+    function renderFormEditor(p) {
+      p = p || afDefault();
+      var el = document.getElementById('adm-form-editor'); if (!el) return;
+      el.innerHTML =
+        "<div class='af-mod'>" +
+          "<label><input type='checkbox' id='af-contact'" + (p.contact ? ' checked' : '') + "> 需要备用联系方式</label>" +
+          "<label><input type='checkbox' id='af-upload'" + (p.needUpload ? ' checked' : '') + "> 需要作品文件上传</label>" +
+        "</div>" +
+        "<div class='af-row'><label class='af-lab'>报名/提交截止</label><input id='af-deadline' maxlength='60' value='" + esc(p.deadline || '') + "' placeholder='2026-09-20 18:00'></div>" +
+        "<div class='af-mod'>" +
+          "<label><input type='checkbox' id='af-team'" + (p.team.enabled ? ' checked' : '') + "> 组队信息</label>" +
+          "<input id='af-team-label' maxlength='60' value='" + esc(p.team.label || '组队情况') + "' style='width:180px' title='组队字段名'>" +
+          "<input id='af-team-opt' maxlength='200' value='" + esc((p.team.options || []).join(',')) + "' style='width:260px' placeholder='组队选项,逗号分隔' title='组队选项'>" +
+        "</div>" +
+        "<div class='af-rte-lab'>活动规则 / 要求（富文本）</div>" +
+        "<div class='af-rte-bar'><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"bold\")'>加粗</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"italic\")'>斜体</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"underline\")'>下划线</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"insertUnorderedList\")'>列表</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"createLink\")'>链接</button></div>" +
+        "<div id='af-rules' contenteditable='true' class='af-rte'>" + (p.rules || '') + "</div>" +
+        "<div class='af-fields-h'>报名字段 <button class='adm-btn ok' onclick='window.myAdminFormAddField&&window.myAdminFormAddField()'>＋ 添加字段</button></div>" +
+        "<div id='af-list'>" +
+          (p.fields || []).map(function (f, i) {
+            return "<div class='af-row' data-i='" + i + "'>" +
+              "<input type='hidden' class='af-key' value='" + esc(f.key || '') + "'>" +
+              "<input class='af-lab' maxlength='100' value='" + esc(f.label || '') + "' placeholder='字段名'>" +
+              "<select class='af-type'>" + AF_TYPES.map(function (t) { return "<option value='" + t + "'" + (t === f.type ? ' selected' : '') + ">" + t + "</option>"; }).join('') + "</select>" +
+              "<label class='af-req-w'><input type='checkbox' class='af-req'" + (f.required ? ' checked' : '') + ">必填</label>" +
+              "<input class='af-opt' maxlength='200' value='" + esc((f.options || []).join(',')) + "' placeholder='选项,逗号分隔'>" +
+              "<button class='adm-btn no' onclick=\"window.myAdminFormDelField&&window.myAdminFormDelField(" + i + ")\">删</button>" +
+              "</div>";
+          }).join('') +
+        "</div>" +
+        "<div class='af-save'><button class='adm-btn primary' onclick='window.myAdminFormSave&&window.myAdminFormSave()'>保存报名模板</button><span id='af-msg' class='af-msg'></span></div>";
+      formState.profile = p;
+    }
+    function wrapFormEditor() {
+      // 活动下拉 + 编辑器容器
+      var el = document.getElementById('adm-form'); if (!el) return;
+      if (el.dataset.wrapped) return; el.dataset.wrapped = '1';
+      el.innerHTML = "<div class='af-select-row'><label>选择正式活动（current/upcoming）：</label><select id='af-select'></select><button class='adm-btn' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>加载</button></div><div id='adm-form-editor'><div class='adm-loading'>请选择活动后加载</div></div>";
+      fetch('/api/activities').then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.ok || !j.data) return;
+        var sel = document.getElementById('af-select'); if (!sel) return;
+        var all = (j.data.current || []).concat(j.data.upcoming || []);
+        sel.innerHTML = "<option value=''>— 选择活动 —</option>" + all.map(function (a) { return "<option value='" + esc(a.id) + "'>" + esc(a.name) + "</option>"; }).join('');
+      }).catch(function () {});
+    }
+    function loadFormEditor() {
+      var sel = document.getElementById('af-select'); if (!sel) return;
+      var id = sel.value; if (!id) return;
+      formState.activityId = id;
+      fetch('/api/activities/' + encodeURIComponent(id) + '/signup-form').then(function (r) { return r.json(); }).then(function (j) {
+        renderFormEditor((j.ok && j.data) || afDefault());
+      }).catch(function () { renderFormEditor(afDefault()); });
+    }
+    function afCollect() {
+      var ed = document.getElementById('adm-form-editor'); if (!ed) return null;
+      var list = document.getElementById('af-list'); if (!list) return null;
+      var fields = [];
+      var used = new Set(['contact', 'needUpload', 'deadline', 'team', 'rules', 'fields', 'name', 'dept']);
+      Array.prototype.forEach.call(list.querySelectorAll('.af-row'), function (row) {
+        var key = ((row.querySelector('.af-key') || {}).value || '').trim();
+        if (!key) key = ((row.querySelector('.af-lab') || {}).value || '').trim().replace(/\s+/g, '_');
+        if (!/^[A-Za-z0-9_]+$/.test(key) || used.has(key)) return;
+        used.add(key);
+        var type = (row.querySelector('.af-type') || {}).value || 'text';
+        var opts = ((row.querySelector('.af-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 20);
+        fields.push({ key: key, label: (row.querySelector('.af-lab') || {}).value || key, type: type, required: !!(row.querySelector('.af-req') || {}).checked, options: opts, placeholder: '' });
+      });
+      var teamOpts = ((document.getElementById('af-team-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+      return {
+        contact: !!(document.getElementById('af-contact') || {}).checked,
+        needUpload: !!(document.getElementById('af-upload') || {}).checked,
+        deadline: (document.getElementById('af-deadline') || {}).value || '',
+        team: { enabled: !!(document.getElementById('af-team') || {}).checked, label: (document.getElementById('af-team-label') || {}).value || '组队情况', options: teamOpts.length ? teamOpts : ['单人', '2-3人'] },
+        rules: (document.getElementById('af-rules') || {}).innerHTML || '',
+        fields: fields
+      };
+    }
+    window.myAdminFormLoad = function (id) { formState.activityId = id; loadFormEditor(); };
+    window.myAdminFormAddField = function () {
+      var list = document.getElementById('af-list'); if (!list) return;
+      var i = list.querySelectorAll('.af-row').length;
+      list.insertAdjacentHTML('beforeend', "<div class='af-row' data-i='" + i + "'><input type='hidden' class='af-key' value=''><input class='af-lab' maxlength='100' placeholder='字段名'><select class='af-type'>" + AF_TYPES.map(function (t) { return "<option value='" + t + "'>" + t + "</option>"; }).join('') + "</select><label class='af-req-w'><input type='checkbox' class='af-req'>必填</label><input class='af-opt' maxlength='200' placeholder='选项,逗号分隔'><button class='adm-btn no' onclick=\"window.myAdminFormDelField&&window.myAdminFormDelField(" + i + ")\">删</button></div>");
+    };
+    window.myAdminFormDelField = function (i) {
+      var list = document.getElementById('af-list'); if (!list) return;
+      var rows = Array.prototype.slice.call(list.querySelectorAll('.af-row'));
+      var row = rows.filter(function (r) { return +r.getAttribute('data-i') === +i; })[0];
+      if (row) row.parentNode.removeChild(row);
+    };
+    window.myAdminFormSave = function () {
+      var id = formState.activityId || (document.getElementById('af-select') || {}).value;
+      var msg = document.getElementById('af-msg');
+      if (!id || !msg) return;
+      var profile = afCollect(); if (!profile) return;
+      fetch('/api/admin/activities/' + encodeURIComponent(id) + '/signup-form', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: profile }) })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          msg.textContent = j.ok ? '✓ 已保存（站点自动生效）' : ('保存失败：' + ((j.error && j.error.message) || '未知错误'));
+        }).catch(function () { msg.textContent = '保存失败：网络异常'; });
+    };
+    window.myAdminFmt = function (cmd) {
+      var r = document.getElementById('af-rules'); if (!r) return; r.focus();
+      if (cmd === 'createLink') { var u = prompt('链接地址'); if (u) document.execCommand('createLink', false, u); }
+      else document.execCommand(cmd, false, null);
+    };
     var h = "<div class='my-sec my-admin'>" +
       "<div class='my-sechead'><span class='t'>管理控制台</span><span class='e'>ADMIN CONSOLE · 仅管理员可见</span></div>" +
       "<div class='adm-tabs'>" +
@@ -775,12 +889,14 @@ var AdminPage = () => {
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('resv')\">预约名单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sgn')\">报名名单</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('form')\">报名表单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sys')\">提醒 / 系统</button>" +
       "</div>" +
       "<div id='adm-works' class='adm-panel'><div class='adm-loading'>加载中…</div></div>" +
       "<div id='adm-regs' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-resv' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-sgn' class='adm-panel' style='display:none'></div>" +
+      "<div id='adm-form' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-sys' class='adm-panel' style='display:none'>" +
         "<div class='adm-sys-row'><div><div class='adm-sys-t'>手动触发活动开始提醒扫描</div>" +
         "<div class='adm-sys-d'>扫描「即将开始且未提醒」的预约并向预约人推送飞书 + 站内通知；正常情况每小时自动跑，这里用于测试/应急。</div></div>" +
@@ -791,7 +907,7 @@ var AdminPage = () => {
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminFormLoad", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
@@ -824,8 +940,151 @@ var AdminPage = () => {
     .adm-resv-grp{margin-bottom:22px;}
     .adm-resv-h{font-size:14px;font-weight:600;color:#1a1a1f;margin-bottom:8px;} .adm-resv-c{font-size:12px;color:#2568d8;font-family:'JetBrains Mono',monospace;margin-left:6px;}
     @media(max-width:820px){.adm-sys-row{flex-direction:column;align-items:flex-start;}}
+    .af-select-row{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:#666;}
+    #af-select{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:7px 10px;min-width:260px;}
+    .af-mod{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:#333;}
+    .af-mod input[type=text]{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+    .af-row .af-lab{width:150px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row .af-type{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row .af-opt{width:220px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-req-w{font-size:12px;color:#666;display:inline-flex;gap:4px;align-items:center;}
+    .af-rte-lab{font-size:13px;font-weight:600;color:#1a1a1f;margin:12px 0 6px;}
+    .af-rte-bar{display:flex;gap:6px;margin-bottom:6px;}
+    .af-rte-bar button{font-family:inherit;font-size:12px;border:1px solid #ccc;background:#f6f7f9;border-radius:4px;padding:3px 10px;cursor:pointer;}
+    .af-rte{min-height:120px;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:14px;line-height:1.8;background:#fff;}
+    .af-rte:focus{outline:none;border-color:#2568d8;}
+    .af-fields-h{font-size:13px;font-weight:600;color:#1a1a1f;margin:16px 0 8px;display:flex;gap:10px;align-items:center;}
+    .af-save{margin-top:18px;display:flex;gap:12px;align-items:center;}
+    .af-msg{font-size:13px;color:#2a9d63;}
+    .adm-link{color:#2568d8;text-decoration:none;} .adm-link:hover{text-decoration:underline;}
   `),
     React.createElement("div", { ref: ref }));
+};
+
+var SIGNUP_CSS = `
+  .sig-wrap{max-width:760px;margin:0 auto;}
+  .sig-card{background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:14px;padding:36px 40px;box-shadow:0 18px 50px rgba(0,0,0,0.05);}
+  .sig-back{font-size:13px;color:#2568d8;text-decoration:none;display:inline-block;margin-bottom:20px;}
+  .sig-title{font-family:'Noto Serif SC',serif;font-size:28px;font-weight:600;letter-spacing:1px;margin:0 0 8px;}
+  .sig-deadline{font-size:13px;color:#c98a1b;margin-bottom:14px;}
+  .sig-rules{font-size:14px;color:#444;line-height:1.9;background:#fafbfc;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:16px 20px;margin-bottom:24px;}
+  .sig-form{display:grid;gap:18px;}
+  .sig-field label{display:block;font-size:13px;font-weight:600;color:#1a1a1f;margin-bottom:6px;}
+  .sig-field input[type=text],.sig-field input[type=number],.sig-field input[type=date],.sig-field input[type=email],.sig-field input:not([type]),.sig-field select,.sig-field textarea{width:100%;box-sizing:border-box;border:1px solid #e0e0dc;border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;}
+  .sig-field input[readonly]{background:#f6f7f9;color:#666;}
+  .sig-radios{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;}
+  .sig-radios label{display:inline-flex;align-items:center;gap:6px;font-weight:400;color:#333;cursor:pointer;}
+  .sig-hint{font-size:12px;color:#999;margin-top:4px;}
+  .sig-req{color:#c0392b;}
+  .sig-err{color:#c0392b;font-size:13px;}
+  .sig-login{text-align:center;padding:10px 0;}
+  .sig-btn{display:inline-block;background:#1a1a1f;color:#fff;border:none;border-radius:999px;padding:12px 34px;font-size:15px;cursor:pointer;font-family:inherit;text-decoration:none;text-align:center;}
+  .sig-btn:hover{background:#000;}
+  .sig-done{font-size:26px;font-weight:700;color:#2a9d63;margin-bottom:10px;text-align:center;}
+  @media(max-width:640px){.sig-card{padding:24px 20px;}}
+`;
+var SignupPage = () => {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
+    const q = {}; (String(location.hash).split("?")[1] || "").split("&").forEach(function (kv) { var i = kv.indexOf("="); if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1)); });
+    const activityId = q.activity || "";
+    const fieldHtml = function (f) {
+      var req = f.required ? " <span class='sig-req'>*</span>" : "";
+      var id = "sig-" + f.key;
+      var inp;
+      if (f.type === "textarea") inp = "<textarea id='" + id + "' rows='3' maxlength='2000' placeholder='" + esc(f.placeholder || "") + "'></textarea>";
+      else if (f.type === "select") inp = "<select id='" + id + "'><option value=''>请选择</option>" + (f.options || []).map(function (o) { return "<option value='" + esc(o) + "'>" + esc(o) + "</option>"; }).join("") + "</select>";
+      else if (f.type === "radio") inp = "<div class='sig-radios'>" + (f.options || []).map(function (o) { return "<label><input type='radio' name='" + f.key + "' value='" + esc(o) + "'> " + esc(o) + "</label>"; }).join("") + "</div>";
+      else if (f.type === "checkbox") inp = "<div class='sig-radios'>" + (f.options || []).map(function (o) { return "<label><input type='checkbox' name='" + f.key + "' value='" + esc(o) + "'> " + esc(o) + "</label>"; }).join("") + "</div>";
+      else if (f.type === "number") inp = "<input id='" + id + "' type='number' placeholder='" + esc(f.placeholder || "") + "'>";
+      else if (f.type === "date") inp = "<input id='" + id + "' type='date'>";
+      else inp = "<input id='" + id + "' type='text' maxlength='500' placeholder='" + esc(f.placeholder || "") + "'>";
+      return "<div class='sig-field'><label>" + esc(f.label) + req + "</label>" + inp + "</div>";
+    };
+    Promise.all([
+      fetch("/api/activities/" + encodeURIComponent(activityId)).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
+      fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup-form").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
+      fetch("/api/auth/me").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
+      fetch("/api/my/profile").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; })
+    ]).then(function (rs) {
+      if (cancelled || !ref.current) return;
+      var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3];
+      var profile = (pf.ok && pf.data) || {};
+      if (!activityId || !act.ok) { ref.current.innerHTML = "<div class='my-empty'>活动不存在或已下线</div>"; return; }
+      var a = act.data;
+      var isAuth = me && me.authenticated;
+      var uname = (prof.ok && prof.data && prof.data.name) || "";
+      var udept = (prof.ok && prof.data && prof.data.department) || "";
+      var h = "<div class='sig-wrap'><div class='sig-card'>";
+      h += "<a class='sig-back' href='/#activities'>← 返回活动大厅</a>";
+      h += "<h1 class='sig-title'>" + esc(a.name || "") + "</h1>";
+      if (profile.deadline) h += "<div class='sig-deadline'>报名截止：" + esc(profile.deadline) + "</div>";
+      if (profile.rules) h += "<div class='sig-rules'>" + profile.rules + "</div>";
+      if (!isAuth) {
+        h += "<div class='sig-login'><p>报名需先登录飞书账号</p><a href='/login.html' class='sig-btn'>去登录 →</a></div>";
+      } else {
+        h += "<form id='sigForm' class='sig-form'>";
+        h += "<div class='sig-field'><label>姓名</label><input type='text' value='" + esc(uname) + "' readonly></div>";
+        h += "<div class='sig-field'><label>部门</label><input type='text' value='" + esc(udept) + "' readonly></div>";
+        if (profile.contact !== false) h += "<div class='sig-field'><label>备用联系方式（选填）</label><input id='sig-contact' type='text' maxlength='100' placeholder='手机 / 邮箱'></div>";
+        if (profile.needUpload) h += "<div class='sig-field'><label>作品文件（必传）</label><input id='sig-file' type='file'><div class='sig-hint'>支持常规文件（源码包/文档/视频等），单个 ≤50MB</div></div>";
+        if (profile.team && profile.team.enabled) h += "<div class='sig-field'><label>" + esc(profile.team.label) + "</label><div class='sig-radios'>" + (profile.team.options || []).map(function (o) { return "<label><input type='radio' name='__team' value='" + esc(o) + "'> " + esc(o) + "</label>"; }).join("") + "</div></div>";
+        (profile.fields || []).forEach(function (f) { h += fieldHtml(f); });
+        h += "<div id='sig-err' class='sig-err'></div>";
+        h += "<button type='submit' id='sigSubmit' class='sig-btn'>提交报名</button>";
+        h += "</form>";
+      }
+      h += "</div></div>";
+      ref.current.innerHTML = h;
+      var form = document.getElementById("sigForm");
+      if (form) form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var err = document.getElementById("sig-err"), btn = document.getElementById("sigSubmit");
+        var response = {}, miss = [];
+        if (profile.team && profile.team.enabled) { var tv = form.querySelector("input[name='__team']:checked"); if (!tv) miss.push(profile.team.label); else response.__team = tv.value; }
+        (profile.fields || []).forEach(function (f) {
+          var el;
+          if (f.type === "radio") { var r = form.querySelector("input[name='" + f.key + "']:checked"); el = r ? r.value : ""; }
+          else if (f.type === "checkbox") el = Array.prototype.filter.call(form.querySelectorAll("input[name='" + f.key + "']:checked"), function (c) { return c.checked; }).map(function (c) { return c.value; }).join(", ");
+          else el = (document.getElementById("sig-" + f.key) || {}).value || "";
+          el = String(el).trim();
+          if (f.required && !el) miss.push(f.label);
+          response[f.key] = el;
+        });
+        if (miss.length) { err.textContent = "请填写：" + miss.join("、"); return; }
+        var contact = (document.getElementById("sig-contact") || {}).value || "";
+        var fileInput = document.getElementById("sig-file");
+        function finish(uploadInfo) {
+          if (btn) { btn.disabled = true; btn.textContent = "提交中…"; }
+          fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact: contact, upload: uploadInfo, response: response }) })
+            .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+            .then(function (res) {
+              if (res.s === 401) { err.textContent = "登录已失效，请重新登录"; return; }
+              if (!res.j.ok) throw new Error((res.j.error && res.j.error.message) || "提交失败");
+              var rep = !!(res.j.data && res.j.data.repeated);
+              ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-done'>✓ " + (rep ? "您已报名过该活动" : "报名成功") + "</div><p style='text-align:center'>" + esc(a.name || "") + "</p><div style='text-align:center;margin-top:16px'><a class='sig-btn' href='/#activities'>返回活动大厅</a></div></div></div>";
+            })
+            .catch(function (ex) { err.textContent = ex.message || "网络异常"; if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } });
+        }
+        function uploadFirst(cb) {
+          if (btn) btn.textContent = "上传中…";
+          var fd = new FormData(); fd.append("file", fileInput.files[0]);
+          fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup/upload", { method: "POST", body: fd })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (j.ok) cb(j.data); else { err.textContent = "文件上传失败：" + ((j.error && j.error.message) || "未知错误"); if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } } })
+            .catch(function () { err.textContent = "文件上传网络异常"; if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } });
+        }
+        if (profile.needUpload) { if (!fileInput || !fileInput.files || !fileInput.files[0]) { err.textContent = "请上传作品文件"; return; } uploadFirst(finish); }
+        else finish(null);
+      });
+    }).catch(function () {});
+    return function () { cancelled = true; };
+  }, []);
+  return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "120px 24px 80px", minHeight: "100vh" } },
+    React.createElement("style", null, SIGNUP_CSS), React.createElement("div", { ref: ref }));
 };
 
 var ActivitiesSection = () => {
@@ -1023,15 +1282,7 @@ var ActivitiesSection = () => {
           var formHtml = pastMode
             ? "<div class='act-p-ended'><p>该活动已结束</p><a class='act-p-wall' href='/#'>前往作品墙 →</a></div>"
             : enrollMode
-              ? "<form class='act-p-form'>" +
-                "<div class='act-p-fhead'><span class='t'>SIGN UP · 报名表</span><span class='en'>SIGN UP</span></div>" +
-                "<div class='act-p-field'><label>姓名</label><input name='name' maxlength='50' placeholder='默认取飞书登录信息'></div>" +
-                "<div class='act-p-field'><label>部门</label><input name='dept' maxlength='100' placeholder='登录带出，可修改'></div>" +
-                "<div class='act-p-field'><label>备用联系方式</label><input name='contact' maxlength='100' placeholder='手机 / 邮箱（选填）'></div>" +
-                "<div class='act-p-field'><label>参与期待</label><textarea name='note' rows='2' maxlength='500' placeholder='想听什么 / 想聊什么（选填）'></textarea></div>" +
-                "<button type='submit' class='act-p-submit'>确认报名 →</button>" +
-                "<p class='act-p-tip'>个人信息默认从飞书登录提取 · 报名成功后可在个人中心「活动记录」查看</p>" +
-                "</form>"
+              ? "<div class='act-p-cta'><p>报名表单请前往报名页填写（姓名/部门自动带出）</p><a class='act-p-submit' href='#signup?activity=" + encodeURIComponent(String(a.id || "")) + "'>前往报名 →</a></div>"
               : "<form class='act-p-form'>" +
                 "<div class='act-p-fhead'><span class='t'>RESERVE · 预约表</span><span class='en'>RESERVATION</span></div>" +
                 "<div class='act-p-field'><label>参与期待</label><textarea name='note' rows='3' placeholder='想听什么 / 想聊什么（选填）'></textarea></div>" +
@@ -1046,53 +1297,31 @@ var ActivitiesSection = () => {
             hl + formHtml;
           if (!pastMode) {
             var f = pBodyEl.querySelector(".act-p-form");
-            // 报名表单：登录信息预填（姓名/部门，可改）
-            if (enrollMode) {
-              fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
-                if (cancelled || !panelOpen || !pBodyEl) return;
-                if (!(j && j.authenticated)) {
-                  var tip0 = pBodyEl.querySelector(".act-p-tip");
-                  if (tip0) tip0.innerHTML = "报名需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
-                  return;
-                }
-                fetch("/api/my/profile").then(function (r) { return r.json(); }).then(function (p) {
-                  if (!p.ok || cancelled || !pBodyEl) return;
-                  var n = pBodyEl.querySelector("input[name='name']"), d = pBodyEl.querySelector("input[name='dept']");
-                  if (n && !n.value) n.value = p.data.name || "";
-                  if (d && !d.value) d.value = p.data.department || "";
-                }).catch(function () {});
-              }).catch(function () {});
-            }
             if (f) f.addEventListener("submit", function (e) {
               e.preventDefault();
               var btn = f.querySelector(".act-p-submit");
               var tip = f.querySelector(".act-p-tip");
               if (btn && btn.disabled) return;
-              var val = function (n) { var el = f.querySelector("[name='" + n + "']"); return el ? String(el.value || "").trim() : ""; };
-              var body = enrollMode
-                ? { name: val("name"), dept: val("dept"), contact: val("contact"), note: val("note").slice(0, 500) }
-                : { note: val("note").slice(0, 500) };
-              var ep = enrollMode ? "signup" : "reserve";
-              var btnText = enrollMode ? "确认报名 →" : "预约 →";
+              var noteEl = f.querySelector("textarea[name='note']");
               if (btn) { btn.disabled = true; btn.textContent = "提交中…"; }
-              fetch("/api/activities/" + encodeURIComponent(String(a.id || "")) + "/" + ep, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+              fetch("/api/activities/" + encodeURIComponent(String(a.id || "")) + "/reserve", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ note: String((noteEl && noteEl.value) || "").trim().slice(0, 500) })
               }).then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
                 .then(function (res) {
                   if (res.s === 401) {
-                    if (tip) tip.innerHTML = (enrollMode ? "报名" : "预约") + "需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
-                    if (btn) { btn.disabled = false; btn.textContent = btnText; }
+                    if (tip) tip.innerHTML = "预约需先登录飞书账号 · <a href='/login.html' style='color:#2568d8;text-decoration:underline'>去登录 →</a>";
+                    if (btn) { btn.disabled = false; btn.textContent = "预约 →"; }
                     return;
                   }
                   if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error && res.j.error.message) || "submit failed");
                   var rep = !!(res.j.data && res.j.data.repeated);
-                  var doneTxt = enrollMode ? (rep ? "您已报名过该活动" : "报名成功") : (rep ? "您已预约过该活动" : "已收到您的预约");
-                  pBodyEl.innerHTML = "<div class='act-p-done'><div class='ring'>✓</div><p class='t'>" + doneTxt + "</p><p class='s'>" + esc(a.name || "") + "</p></div>";
+                  pBodyEl.innerHTML = "<div class='act-p-done'><div class='ring'>✓</div><p class='t'>" + (rep ? "您已预约过该活动" : "已收到您的预约") + "</p><p class='s'>" + esc(a.name || "") + "</p></div>";
                   setTimeout(function () { if (panelOpen) closePanel(); }, 1400);
                 })
                 .catch(function () {
                   if (tip) tip.textContent = "提交失败，请稍后再试";
-                  if (btn) { btn.disabled = false; btn.textContent = btnText; }
+                  if (btn) { btn.disabled = false; btn.textContent = "预约 →"; }
                 });
             });
           }
@@ -2444,6 +2673,9 @@ var ActivitiesSection = () => {
     .act-p-fhead .t{font-size:11px;letter-spacing:3px;color:#111;}
     .act-p-fhead .en{font-size:10px;letter-spacing:2px;color:#ccc;}
     .act-p-field{display:flex;flex-direction:column;gap:8px;margin:20px 0;}
+    .act-p-cta{margin:24px 0;text-align:center;}
+    .act-p-cta p{font-size:13px;color:#888;margin-bottom:14px;}
+    .act-p-cta a.act-p-submit{display:inline-block;text-decoration:none;font-family:inherit;}
     .act-p-field label{font-size:11px;letter-spacing:2px;color:#999;}
     .act-p-field input,.act-p-field textarea{border:none;border-bottom:1px solid #ddd;background:transparent;padding:8px 2px;font-size:14px;color:#111;font-family:inherit;outline:none;transition:border-color .4s;resize:vertical;}
     .act-p-field input:focus,.act-p-field textarea:focus{border-bottom-color:#1a2b4a;}
@@ -2882,6 +3114,24 @@ var MySection = () => {
     .adm-resv-grp{margin-bottom:22px;}
     .adm-resv-h{font-size:14px;font-weight:600;color:#1a1a1f;margin-bottom:8px;} .adm-resv-c{font-size:12px;color:#2568d8;font-family:'JetBrains Mono',monospace;margin-left:6px;}
     @media(max-width:820px){.adm-sys-row{flex-direction:column;align-items:flex-start;}}
+    .af-select-row{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:#666;}
+    #af-select{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:7px 10px;min-width:260px;}
+    .af-mod{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:#333;}
+    .af-mod input[type=text]{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+    .af-row .af-lab{width:150px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row .af-type{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-row .af-opt{width:220px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
+    .af-req-w{font-size:12px;color:#666;display:inline-flex;gap:4px;align-items:center;}
+    .af-rte-lab{font-size:13px;font-weight:600;color:#1a1a1f;margin:12px 0 6px;}
+    .af-rte-bar{display:flex;gap:6px;margin-bottom:6px;}
+    .af-rte-bar button{font-family:inherit;font-size:12px;border:1px solid #ccc;background:#f6f7f9;border-radius:4px;padding:3px 10px;cursor:pointer;}
+    .af-rte{min-height:120px;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:14px;line-height:1.8;background:#fff;}
+    .af-rte:focus{outline:none;border-color:#2568d8;}
+    .af-fields-h{font-size:13px;font-weight:600;color:#1a1a1f;margin:16px 0 8px;display:flex;gap:10px;align-items:center;}
+    .af-save{margin-top:18px;display:flex;gap:12px;align-items:center;}
+    .af-msg{font-size:13px;color:#2a9d63;}
+    .adm-link{color:#2568d8;text-decoration:none;} .adm-link:hover{text-decoration:underline;}
   `), React.createElement("div", { ref: ref }));
 };
 
@@ -5175,7 +5425,7 @@ var Footer = () => {
     style: { fontFamily: "'JetBrains Mono', monospace", opacity: 0.6 }
   }, "v1.0 · CURVED SCREEN"))));
 };
-var HASH_PAGES = { home: 1, activities: 1, community: 1, about: 1, my: 1, admin: 1 };
+var HASH_PAGES = { home: 1, activities: 1, community: 1, about: 1, my: 1, admin: 1, signup: 1 };
 var App = () => {
   const [page, setPage] = React.useState(function () {
     var h = String(window.location.hash || "").replace(/^#/, "").split("?")[0]; // 支持 #activities?open=… 带参进入
@@ -5232,7 +5482,7 @@ var App = () => {
   })), page === "work" && selectedWork !== null && /* @__PURE__ */ React.createElement(WorkDetail, {
     workIdx: selectedWork,
     onBack: () => handleNavigate("home")
-  }), page === "activities" && /* @__PURE__ */ React.createElement(ActivitiesSection, null), page === "my" && /* @__PURE__ */ React.createElement(MySection, null), page === "admin" && /* @__PURE__ */ React.createElement(AdminPage, null), page === "community" && /* @__PURE__ */ React.createElement(CommunitySection, null), page === "join" && /* @__PURE__ */ React.createElement(JoinSection, null), /* @__PURE__ */ React.createElement(Footer, null), /* @__PURE__ */ React.createElement("style", null, `
+  }), page === "activities" && /* @__PURE__ */ React.createElement(ActivitiesSection, null), page === "my" && /* @__PURE__ */ React.createElement(MySection, null), page === "admin" && /* @__PURE__ */ React.createElement(AdminPage, null), page === "signup" && /* @__PURE__ */ React.createElement(SignupPage, null), page === "community" && /* @__PURE__ */ React.createElement(CommunitySection, null), page === "join" && /* @__PURE__ */ React.createElement(JoinSection, null), /* @__PURE__ */ React.createElement(Footer, null), /* @__PURE__ */ React.createElement("style", null, `
         /* ===== 移动端适配 ===== */
         @media (max-width: 768px) {
           .site-nav {
