@@ -727,7 +727,7 @@ var ActivitiesSection = () => {
         return "";
       };
       // 展线导航（sticky 吸附）
-      h += "<nav class='act-rail' id='actRail'>" +
+      h += "<nav class='act-rail v33-rv' id='actRail'>" +
         "<a href='#act-sec-feature' data-target='act-sec-feature' class='rail-link on'><span class='rail-no'>01</span><span>本月特展</span></a>" +
         "<a href='#act-sec-upcoming' data-target='act-sec-upcoming' class='rail-link'><span class='rail-no'>02</span><span>预约消息通知</span></a>" +
         "<a href='#act-sec-archive' data-target='act-sec-archive' class='rail-link'><span class='rail-no'>03</span><span>回顾展区</span></a>" +
@@ -815,7 +815,7 @@ var ActivitiesSection = () => {
       h += "<div class='act-sechead' id='act-sec-archive'><span class='act-secno'>03</span><span class='act-sectitle'>回顾展区</span><span class='act-secen'>ARCHIVE · 按住拖拽 · 点击查看回顾</span></div>";
       var typeNames = types.map(function (t) { return t.name; });
       var typeCnt = {}; past.forEach(function (a) { var t = typeOfPast(a); typeCnt[t] = (typeCnt[t] || 0) + 1; });
-      h += "<div class='arch-chips' id='archChips'><button class='chip on' data-f='全部'>全部(" + past.length + ")</button>" + typeNames.map(function (n) { return "<button class='chip' data-f='" + esc(n) + "'>" + esc(n) + "(" + (typeCnt[n] || 0) + ")</button>"; }).join("") + "<span class='arch-hint'>← 拖拽浏览 · 聚光查看 →</span></div>";
+      h += "<div class='arch-chips v33-rv' id='archChips'><button class='chip on' data-f='全部'>全部(" + past.length + ")</button>" + typeNames.map(function (n) { return "<button class='chip' data-f='" + esc(n) + "'>" + esc(n) + "(" + (typeCnt[n] || 0) + ")</button>"; }).join("") + "<span class='arch-hint'>← 拖拽浏览 · 聚光查看 →</span></div>";
       h += "<div class='arch-wall' id='archWall'><div class='arch-spot' id='archSpot'></div><div class='arch-track' id='archTrack'>" + past.map(function (a) {
         return "<div class='arch-item' data-type='" + esc(typeOfPast(a)) + "' onclick=\"window.actPanel&&window.actPanel('past','" + a.id + "')\">" +
           "<span class='arch-top' style='background:" + (a.color || "#1a2b4a") + "' aria-hidden='true'></span>" +
@@ -5130,10 +5130,65 @@ var App = () => {
     window.addEventListener("navWork", handler);
     return () => window.removeEventListener("navWork", handler);
   }, []);
-  React.useEffect(() => {
-    const h = window.location.hash;
-    if (h === "#my") setPage("my");
-  }, []);
+    // ===== v33 全局连贯性 · 区块渐显 + 锚点活动联动 =====
+    React.useEffect(function () {
+      try {
+        var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduced) {
+          document.body.classList.add("v33js");
+          return;
+        }
+        if (!("IntersectionObserver" in window)) {
+          document.body.classList.add("v33js");
+          document.querySelectorAll(".v33-rv").forEach(function (el) { el.classList.add("v33-in"); });
+          return;
+        }
+        document.body.classList.add("v33js");
+        // 渐显：统一 IO 监听所有 .v33-rv
+        var rvIO = new IntersectionObserver(function (ents) {
+          ents.forEach(function (en) {
+            if (en.isIntersecting) {
+              en.target.classList.add("v33-in");
+              rvIO.unobserve(en.target);
+            }
+          });
+        }, { rootMargin: "0px 0px -6% 0px", threshold: 0.08 });
+        var scan = function () {
+          document.querySelectorAll(".v33-rv:not(.v33-in)").forEach(function (el) { rvIO.observe(el); });
+        };
+        scan();
+        // 内容异步插入时兜底（如 hash 切换、innerHTML 渲染）
+        var mo = new MutationObserver(function () { scan(); });
+        mo.observe(document.body, { childList: true, subtree: true });
+        // 活动页锚点 scroll-spy：哪个 act-sec-* 居中，对应 rail-link 标 .on
+        var spyIO = new IntersectionObserver(function (ents) {
+          ents.forEach(function (en) {
+            if (!en.isIntersecting) return;
+            var sec = en.target;
+            var id = sec.id;
+            if (!id || id.indexOf("act-sec-") !== 0) return;
+            var rail = sec.parentElement && sec.parentElement.querySelector(".act-rail");
+            if (!rail) return;
+            rail.querySelectorAll("a.rail-link").forEach(function (a) {
+              if (a.getAttribute("data-target") === id) a.classList.add("on");
+              else a.classList.remove("on");
+            });
+          });
+        }, { rootMargin: "-40% 0px -50% 0px", threshold: 0 });
+        var spyScan = function () {
+          document.querySelectorAll("[id^='act-sec-']").forEach(function (el) { spyIO.observe(el); });
+        };
+        spyScan();
+        var spyMo = new MutationObserver(spyScan);
+        spyMo.observe(document.body, { childList: true, subtree: true });
+        return function () {
+          rvIO.disconnect();
+          mo.disconnect();
+          spyIO.disconnect();
+          spyMo.disconnect();
+        };
+      } catch (e) { /* v33 异常不影响主体 */ }
+    }, []);
   return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Nav, {
     onNavigate: handleNavigate,
     currentPage: page,
@@ -5286,6 +5341,56 @@ var App = () => {
         @keyframes fadeUp {
           from { opacity: 0; transform: translate(-50%, 10px); }
           to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        /* ===== v33 出场入场 · 整体连贯性 ===== */
+        /* 页面切换入场：每次 React 条件渲染挂载时重放 */
+        @keyframes v33PageIn {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: none; }
+        }
+        section.page-section,
+        section.hero-section {
+          animation: v33PageIn .55s cubic-bezier(.22, 1, .36, 1) both;
+        }
+        /* 区块渐显：v33-rv + body.v33js 才生效（避免首屏未挂载 IO 时短暂全空） */
+        body.v33js .v33-rv {
+          opacity: 0;
+          transform: translateY(18px);
+          transition: opacity .7s cubic-bezier(.22, 1, .36, 1),
+                      transform .7s cubic-bezier(.22, 1, .36, 1);
+          will-change: opacity, transform;
+        }
+        body.v33js .v33-rv.v33-in {
+          opacity: 1;
+          transform: none;
+        }
+        /* 活动页左侧导航链接：rail 容器 v33-in 时联动子项交错入场 */
+        body.v33js .act-rail a.rail-link {
+          opacity: 0;
+          transform: translateX(-8px);
+          transition: opacity .5s cubic-bezier(.22, 1, .36, 1),
+                      transform .5s cubic-bezier(.22, 1, .36, 1),
+                      color .25s ease, background .25s ease;
+        }
+        body.v33js .act-rail.v33-in a.rail-link {
+          opacity: 1;
+          transform: none;
+        }
+        body.v33js .act-rail.v33-in a.rail-link:nth-child(1) { transition-delay: .05s; }
+        body.v33js .act-rail.v33-in a.rail-link:nth-child(2) { transition-delay: .12s; }
+        body.v33js .act-rail.v33-in a.rail-link:nth-child(3) { transition-delay: .19s; }
+        body.v33js .act-rail.v33-in a.rail-link:nth-child(4) { transition-delay: .26s; }
+        body.v33js .act-rail.v33-in a.rail-link:nth-child(5) { transition-delay: .33s; }
+        /* 尊重用户偏好：关动效时直接落位 */
+        @media (prefers-reduced-motion: reduce) {
+          section.page-section,
+          section.hero-section { animation: none; }
+          body.v33js .v33-rv,
+          body.v33js .act-rail a.rail-link {
+            opacity: 1 !important;
+            transform: none !important;
+            transition: none !important;
+          }
         }
       `));
 };
