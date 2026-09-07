@@ -10,7 +10,7 @@ const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { userSnapshot, utf8Field } = require('../lib/community-core');
+const { userSnapshot, genId, utf8Field } = require('../lib/community-core');
 const { buildReminderCard } = require('../lib/reminders');
 const { LarkClient } = require('../lark-client');
 const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
@@ -254,6 +254,63 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     console.error('[activities.signup]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
+});
+
+
+// ===== v32 活动投信口 =====
+// POST /api/activities/:id/letters —— 投信（authRequired；multipart：note + origname + 可选 file）
+// 私信通道：不进公开接口、不发 notifications，仅管理员后台汇总（GET /api/admin/activities/letters）。
+// 留言语义：一人可多次投信（与 reserve 的幂等预约不同）。文件落 public/uploads/letters/（multer 内存中转，与 artifacts 同款）。
+const LETTER_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'letters');
+const LETTER_EXT = new Set([
+  'zip', 'tar', 'gz', 'tgz', 'rar', '7z',
+  'mp4', 'mov', 'webm', 'mp3', 'wav',
+  'pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md',
+  'png', 'jpg', 'jpeg', 'gif', 'webp',
+  'json', 'js', 'ts', 'py', 'csv', 'html',
+]);
+function getLetterUploadMw() {
+  try {
+    const multer = require('multer'); // 懒加载：未装依赖服务器照常启动（与 artifacts/community 同款降级）
+    return multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }).single('file');
+  } catch (_) {
+    return null;
+  }
+}
+router.post('/:id/letters', authRequired, (req, res) => {
+  const mw = getLetterUploadMw();
+  if (!mw) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, '上传未启用：请在 server/ 执行 npm install multer'));
+  mw(req, res, async (e) => { // multipart 文本字段由 multer 解析后才进 req.body，校验放回调内
+    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.code === 'LIMIT_FILE_SIZE' ? '文件超过 20MB 上限' : e.message));
+    const id = String(req.params.id || '').slice(0, 64);
+    const note = String((req.body || {}).note || '').trim().slice(0, 1000);
+    const origname = String((req.body || {}).origname || '').trim().slice(0, 255);
+    const f = req.file || null;
+    if (!note && !f) return res.status(400).json(err(ErrorCodes.VALIDATION, '留言与文件至少投递一项'));
+    try {
+      const a = await query(`SELECT id FROM activities WHERE id=$1`, [id]);
+      if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
+      let fileName = '', size = 0, storageUrl = '';
+      if (f) {
+        const orig = (origname || utf8Field(String(f.originalname || ''))).slice(0, 255);
+        const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
+        if (!LETTER_EXT.has(ext)) return res.status(400).json(err(ErrorCodes.VALIDATION, `不支持的文件类型：${ext || '未知'}`));
+        const fname = genId('letter') + '.' + ext; // 随机名防路径穿越/防信任原始名
+        try { fs.mkdirSync(LETTER_DIR, { recursive: true }); } catch (_) {}
+        await fs.promises.writeFile(path.join(LETTER_DIR, fname), f.buffer);
+        fileName = orig; size = f.size; storageUrl = '/uploads/letters/' + fname;
+      }
+      const snap = await userSnapshot(req);
+      const r = await query(
+        `INSERT INTO activity_letters (activity_id, user_id, name, dept, note, file_name, file_size, storage_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at`,
+        [id, req.session.userId, snap.name, snap.dept, note, fileName, size, storageUrl]);
+      res.status(201).json(ok({ id: r.rows[0].id, delivered: true }));
+    } catch (e2) {
+      console.error('[activities.letters]', e2);
+      res.status(500).json(err(ErrorCodes.INTERNAL));
+    }
+  });
 });
 
 module.exports = router;
