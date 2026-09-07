@@ -1128,7 +1128,7 @@ var ActivitiesSection = () => {
           if (handleEl) handleEl.addEventListener("click", function (e) {
             e.stopPropagation();
             var cur = parseFloat(cardEl.style.getPropertyValue("--x")) || 76;
-            setX(cur > 50 ? 12 : 76, true);
+            setX(cur > 50 ? 6 : 76, true);
           });
         });
         // v32 投信口：文件选择显示名 + 提交
@@ -2234,7 +2234,7 @@ var ActivitiesSection = () => {
     /* v32 · 滑块对比卡（衔枝 Twig 式：活动概要 ⇄ 创作思路 + 投信口） */
     .sk-row[data-open='1'] .sk-arrow{transform:rotate(90deg);color:#1a2b4a;}
     .skc{position:relative;--x:76%;display:flex;flex-direction:column;margin:6px 0 40px 162px;background:#f2ecdd;border:1px solid rgba(74,66,50,0.16);border-radius:3px;overflow:hidden;}
-    .skc-after{position:relative;order:2;padding:36px 44px 32px;}
+    .skc-after{position:relative;order:2;padding:36px 44px 32px;padding-left:max(48px,8%);}
     .skc-eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#a07c33;margin-bottom:14px;}
     .skc-idea{font-family:'Noto Serif SC',serif;font-size:14.5px;color:#473f30;line-height:2;letter-spacing:.5px;max-width:640px;margin:0 0 26px;}
     .skc-letter{border-top:1px solid rgba(74,66,50,0.16);padding-top:20px;max-width:640px;}
@@ -2269,7 +2269,7 @@ var ActivitiesSection = () => {
     .skc-handle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;background:#faf9f6;border:1.5px solid #c8a45c;color:#8a6d2f;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:ew-resize;box-shadow:0 2px 14px rgba(0,0,0,0.3);}
     .skc-drag .skc-before,.skc-drag .skc-line{transition:none;}
     @media(max-width:900px){.sk-date{font-size:30px;min-width:86px;}.sk-line{gap:16px;flex-wrap:wrap;}.sk-detail p,.sk-detail .sk-signup{margin-left:0;}}
-    @media(max-width:900px){.skc{margin-left:0;}.skc-after{padding:28px 24px 24px;}.skc-before{padding:28px 24px;}}
+    @media(max-width:900px){.skc{margin-left:0;}.skc-after{padding:28px 24px 24px;padding-left:max(24px,8%);}.skc-before{padding:28px 24px;}}
     @media(max-width:760px){.skc-before{position:relative;inset:auto;order:1;clip-path:none;display:block;background:#f5f4f0;margin:0 0 12px;}.skc-line{display:none;}}
     /* 03 回顾展区 · 拖拽展墙 */
     .arch-chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:26px;}
