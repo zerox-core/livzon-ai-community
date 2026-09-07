@@ -796,11 +796,6 @@ var ActivitiesSection = () => {
               "<div class='skc-ed' contenteditable='true' spellcheck='false' data-ph='想说的、想问的、想提前投递的想法…（选填 · 支持富文本，可拖入 / 粘贴附件）'></div>" +
               "<div class='skc-l-chips'></div>" +
               "<div class='skc-l-bar'>" +
-                "<button type='button' class='skc-ed-b' data-cmd='bold' title='加粗'>B</button>" +
-                "<button type='button' class='skc-ed-b' data-cmd='italic' title='斜体'>I</button>" +
-                "<button type='button' class='skc-ed-b' data-cmd='underline' title='下划线'>U</button>" +
-                "<button type='button' class='skc-ed-b' data-cmd='strikeThrough' title='删除线'>S</button>" +
-                "<span class='skc-l-sep'></span>" +
                 "<button type='button' class='skc-l-clip' title='添加附件'>＋</button>" +
                 "<div class='skc-clip-pop'>" +
                   "<button type='button' class='skc-clip-o' data-kind='media'>上传媒体（图 / 视 / 音）</button>" +
@@ -1158,7 +1153,6 @@ var ActivitiesSection = () => {
           var fFile = box.querySelector(".skc-l-ffile");
           var clipBtn = box.querySelector(".skc-l-clip");
           var pop = box.querySelector(".skc-clip-pop");
-          var toolBtns = box.querySelectorAll(".skc-ed-b");
           var cur = null;
           if (!ed) return;
           var say = function (m) { if (state) state.textContent = m || ""; };
@@ -1182,24 +1176,6 @@ var ActivitiesSection = () => {
             renderChips(); say("");
           };
           var closePop = function () { if (pop) pop.classList.remove("open"); };
-          var syncTools = function () {
-            Array.prototype.forEach.call(toolBtns, function (b2) {
-              var on = false;
-              try { on = document.queryCommandState(b2.getAttribute("data-cmd")); } catch (err2) {}
-              b2.classList.toggle("on", !!on);
-            });
-          };
-          Array.prototype.forEach.call(toolBtns, function (b) {
-            b.addEventListener("mousedown", function (e) { e.preventDefault(); });
-            b.addEventListener("click", function (e) {
-              e.preventDefault();
-              ed.focus();
-              try { document.execCommand(b.getAttribute("data-cmd"), false, null); } catch (err) {}
-              syncTools();
-            });
-          });
-          ed.addEventListener("keyup", syncTools);
-          ed.addEventListener("focus", syncTools);
           ed.addEventListener("input", syncCount);
           ed.addEventListener("paste", function (e) {
             var fs = (e.clipboardData && e.clipboardData.files) || [];
@@ -2349,7 +2325,7 @@ var ActivitiesSection = () => {
     .sk-row:hover .sk-arrow{transform:translateX(8px);color:#1a2b4a;}
     .sk-detail{max-height:0;overflow:hidden;transition:max-height .7s cubic-bezier(.22,1,.36,1);}
     .sk-row[data-open='1'] .sk-detail{max-height:720px;}
-    .sk-detail p{font-size:14px;color:#666;line-height:1.9;max-width:760px;margin:0 0 18px 162px;}
+    .sk-detail p{font-size:14px;color:#666;line-height:1.9;max-width:760px;margin:0 0 18px;}
     .sk-detail .sk-signup{margin:0 0 30px 162px;display:inline-block;font-size:12px;letter-spacing:2px;padding:9px 26px;border-radius:2px;border:1px solid #1a2b4a;color:#1a2b4a;background:transparent;cursor:pointer;transition:background .4s,color .4s;}
     .sk-detail .sk-signup:hover{background:#1a2b4a;color:#fff;}
     .sk-detail .sk-signup:disabled{border-color:#ddd;color:#bbb;cursor:not-allowed;}
@@ -2376,10 +2352,6 @@ var ActivitiesSection = () => {
     .skc-l-chip .x{cursor:pointer;color:#9a917f;font-style:normal;padding:0 2px;}
     .skc-l-chip .x:hover{color:#8a3a2e;}
     .skc-l-bar{position:relative;display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
-    .skc-ed-b{font-family:'JetBrains Mono',monospace;font-size:11px;width:26px;height:24px;border:1px solid transparent;border-radius:2px;color:#9a917f;background:transparent;cursor:pointer;padding:0;transition:color .3s,border-color .3s,background .3s;}
-    .skc-ed-b:hover{color:#5a5240;}
-    .skc-ed-b.on{color:#8a6d2f;border-color:rgba(160,124,51,0.55);background:rgba(200,164,92,0.14);}
-    .skc-l-sep{width:1px;height:14px;background:rgba(74,66,50,0.2);margin:0 3px;}
     .skc-l-clip{font-size:15px;line-height:1;width:26px;height:24px;border:1px solid rgba(74,66,50,0.42);border-radius:2px;color:#5a5240;background:#fbf9f3;cursor:pointer;padding:0;transition:border-color .3s,color .3s;}
     .skc-l-clip:hover{border-color:#a07c33;color:#8a6d2f;}
     .skc-clip-pop{position:absolute;left:0;bottom:calc(100% + 6px);display:none;flex-direction:column;gap:2px;background:#fffdf8;border:1px solid rgba(74,66,50,0.3);border-radius:3px;box-shadow:0 8px 24px rgba(46,40,32,0.18);padding:6px;z-index:6;}

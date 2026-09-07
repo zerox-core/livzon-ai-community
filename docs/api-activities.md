@@ -72,7 +72,7 @@ v35 投信口已改为富文本编辑器 + 附件能力，前端已按以下方�
 | 活动列表渲染 | `ActivitiesSection`（`/api/activities`） | upcoming.map 渲染滑块卡片 + 投信口 |
 | 预约提交 | actPanel 内表单 submit | `POST .../reserve`，401 → 引导登录 |
 | 投信提交 | `window.__actLetter(btn)` | `POST .../letters`，FormData：note + note_html + origname + file |
-| 投信 UI 接线 | 搜 `v35 投信口：富文本编辑` | 富文本工具条 / ＋附件按钮（桌面直开系统框、触屏弹媒体/文件浮层）/ 拖入 / 粘贴 / chip / 字数 |
+| 投信 UI 接线 | 搜 `v35 投信口：富文本编辑` | ＋附件按钮（桌面直开系统框、触屏弹媒体/文件浮层）/ 拖入 / 粘贴 / chip / 字数 |
 | 详情探测 | 搜 `v35 预留：滑块详情内容 API` | `GET .../detail`，404 静默回退 |
 
 ## 4. 合并对接说明
