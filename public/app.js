@@ -793,9 +793,25 @@ var ActivitiesSection = () => {
             "<p class='skc-idea'>" + esc(ideaOf(a)) + "</p>" +
             "<div class='skc-letter'>" +
               "<div class='skc-l-head'><span>LETTER BOX</span><span class='skc-l-sub'>投信口 · 私信主办方，不公开展示</span></div>" +
-              "<textarea class='skc-l-note' rows='3' maxlength='1000' placeholder='想说的、想问的、想提前投递的想法…（选填）'></textarea>" +
-              "<div class='skc-l-file'><label class='skc-l-pick'>选择文件<input class='skc-l-input' type='file' accept='" + LETTER_ACCEPT + "'></label><span class='skc-l-fname'>未选择文件（可选 · ≤20MB）</span></div>" +
+              "<div class='skc-ed' contenteditable='true' spellcheck='false' data-ph='想说的、想问的、想提前投递的想法…（选填 · 支持富文本，可拖入 / 粘贴附件）'></div>" +
+              "<div class='skc-l-chips'></div>" +
+              "<div class='skc-l-bar'>" +
+                "<button type='button' class='skc-ed-b' data-cmd='bold' title='加粗'>B</button>" +
+                "<button type='button' class='skc-ed-b' data-cmd='italic' title='斜体'>I</button>" +
+                "<button type='button' class='skc-ed-b' data-cmd='underline' title='下划线'>U</button>" +
+                "<button type='button' class='skc-ed-b' data-cmd='strikeThrough' title='删除线'>S</button>" +
+                "<span class='skc-l-sep'></span>" +
+                "<button type='button' class='skc-l-clip' title='添加附件'>＋</button>" +
+                "<div class='skc-clip-pop'>" +
+                  "<button type='button' class='skc-clip-o' data-kind='media'>上传媒体（图 / 视 / 音）</button>" +
+                  "<button type='button' class='skc-clip-o' data-kind='file'>上传文件（全类型）</button>" +
+                "</div>" +
+                "<span class='skc-l-fill'></span>" +
+                "<span class='skc-l-count'>0/1000</span>" +
+              "</div>" +
               "<div class='skc-l-actions'><button type='button' class='skc-l-send' data-id='" + esc(a.id || "") + "'>投信 →</button><span class='skc-l-state'></span></div>" +
+              "<input class='skc-l-fmedia' type='file' accept='image/*,video/*,audio/*' hidden>" +
+              "<input class='skc-l-ffile' type='file' accept='" + LETTER_ACCEPT + "' hidden>" +
             "</div>" +
           "</div>" +
           "<div class='skc-before'>" +
@@ -1092,7 +1108,7 @@ var ActivitiesSection = () => {
           if (sendBtn) { if (window.__actLetter) window.__actLetter(sendBtn); return; }
           var rsv = t.closest("[data-reserve]");
           if (rsv && !rsv.disabled) { if (window.actPanel) window.actPanel("upcoming", rsv.getAttribute("data-reserve") || ""); return; }
-          if (t.closest("button") || t.closest(".skc-l-pick")) return;
+          if (t.closest("button")) return;
           if (t.closest(".skc")) return; // 卡内（表单/滑块）点击不折叠
           var row = t.closest(".sk-row");
           if (!row) return;
@@ -1131,30 +1147,122 @@ var ActivitiesSection = () => {
             setX(cur > 50 ? 6 : 76, true);
           });
         });
-        // v32 投信口：文件选择显示名 + 提交
+        // v35 投信口：富文本编辑 + 输入栏附件按钮（桌面直开系统选择框 / 触屏弹「媒体·文件」浮层）+ 拖入粘贴附件
+        var v35Coarse = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
         Array.prototype.forEach.call(ref.current.querySelectorAll(".skc-letter"), function (box) {
-          var inp = box.querySelector(".skc-l-input");
-          var fnameEl = box.querySelector(".skc-l-fname");
-          if (inp && fnameEl) inp.addEventListener("change", function () {
-            fnameEl.textContent = (inp.files && inp.files[0]) ? inp.files[0].name : "未选择文件（可选 · ≤20MB）";
+          var ed = box.querySelector(".skc-ed");
+          var chips = box.querySelector(".skc-l-chips");
+          var countEl = box.querySelector(".skc-l-count");
+          var state = box.querySelector(".skc-l-state");
+          var fMedia = box.querySelector(".skc-l-fmedia");
+          var fFile = box.querySelector(".skc-l-ffile");
+          var clipBtn = box.querySelector(".skc-l-clip");
+          var pop = box.querySelector(".skc-clip-pop");
+          var toolBtns = box.querySelectorAll(".skc-ed-b");
+          var cur = null;
+          if (!ed) return;
+          var say = function (m) { if (state) state.textContent = m || ""; };
+          var syncCount = function () {
+            if (countEl) countEl.textContent = String(ed.innerText.replace(/\s/g, "").length) + "/1000";
+          };
+          var renderChips = function () {
+            if (!chips) return;
+            chips.innerHTML = "";
+            if (!cur) return;
+            var chip = document.createElement("span"); chip.className = "skc-l-chip";
+            var nm = document.createElement("span"); nm.className = "n"; nm.textContent = cur.name;
+            var x = document.createElement("i"); x.className = "x"; x.textContent = "×";
+            x.addEventListener("click", function () { cur = null; renderChips(); });
+            chip.appendChild(nm); chip.appendChild(x); chips.appendChild(chip);
+          };
+          var addFile = function (f) {
+            if (!f) return;
+            if (f.size > 20 * 1024 * 1024) { say("「" + f.name + "」超过 20MB 上限"); return; }
+            cur = { name: f.name, file: f };
+            renderChips(); say("");
+          };
+          var closePop = function () { if (pop) pop.classList.remove("open"); };
+          var syncTools = function () {
+            Array.prototype.forEach.call(toolBtns, function (b2) {
+              var on = false;
+              try { on = document.queryCommandState(b2.getAttribute("data-cmd")); } catch (err2) {}
+              b2.classList.toggle("on", !!on);
+            });
+          };
+          Array.prototype.forEach.call(toolBtns, function (b) {
+            b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            b.addEventListener("click", function (e) {
+              e.preventDefault();
+              ed.focus();
+              try { document.execCommand(b.getAttribute("data-cmd"), false, null); } catch (err) {}
+              syncTools();
+            });
           });
+          ed.addEventListener("keyup", syncTools);
+          ed.addEventListener("focus", syncTools);
+          ed.addEventListener("input", syncCount);
+          ed.addEventListener("paste", function (e) {
+            var fs = (e.clipboardData && e.clipboardData.files) || [];
+            if (fs && fs.length) {
+              e.preventDefault();
+              addFile(fs[0]);
+              if (fs.length > 1) say("当前支持单个附件，已取第一个（多附件为预留 v2）");
+            }
+          });
+          ed.addEventListener("dragover", function (e) { e.preventDefault(); ed.classList.add("over"); });
+          ed.addEventListener("dragleave", function () { ed.classList.remove("over"); });
+          ed.addEventListener("drop", function (e) {
+            e.preventDefault(); ed.classList.remove("over");
+            var fs = (e.dataTransfer && e.dataTransfer.files) || [];
+            if (fs && fs.length) {
+              addFile(fs[0]);
+              if (fs.length > 1) say("当前支持单个附件，已取第一个（多附件为预留 v2）");
+            }
+          });
+          if (clipBtn) clipBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (!v35Coarse) { closePop(); if (fFile) fFile.click(); return; }
+            if (pop) pop.classList.toggle("open");
+          });
+          if (pop) Array.prototype.forEach.call(pop.querySelectorAll(".skc-clip-o"), function (o) {
+            o.addEventListener("click", function () {
+              closePop();
+              var tgt = o.getAttribute("data-kind") === "media" ? fMedia : fFile;
+              if (tgt) tgt.click();
+            });
+          });
+          if (fMedia) fMedia.addEventListener("change", function () { addFile(this.files && this.files[0]); this.value = ""; });
+          if (fFile) fFile.addEventListener("change", function () { addFile(this.files && this.files[0]); this.value = ""; });
+          var docClose = function (e) {
+            if (!pop || !pop.classList.contains("open")) return;
+            if (e.target && e.target.closest && !e.target.closest(".skc-clip-pop") && !e.target.closest(".skc-l-clip")) closePop();
+          };
+          document.addEventListener("click", docClose);
+          uiCleanups.push(function () { document.removeEventListener("click", docClose); });
+          box._v35Get = function () {
+            return { note: String(ed.innerText || "").trim(), html: ed.innerHTML || "", file: cur ? cur.file : null };
+          };
+          box._v35Reset = function () {
+            cur = null; renderChips();
+            ed.innerHTML = ""; syncCount();
+            if (fMedia) fMedia.value = "";
+            if (fFile) fFile.value = "";
+          };
+          syncCount();
         });
-        // 投信提交（multipart：note + origname + 可选 file；私信仅进管理员后台，公开面板零留痕）
+        // 投信提交（multipart：note + note_html（v35 预留富文本）+ origname + 可选 file；私信仅进管理员后台，公开面板零留痕）
         window.__actLetter = function (btn) {
           var box = btn.closest(".skc-letter");
           if (!box || btn.disabled) return;
           var state = box.querySelector(".skc-l-state");
-          var note = box.querySelector(".skc-l-note");
-          var inp = box.querySelector(".skc-l-input");
-          var fnameEl = box.querySelector(".skc-l-fname");
-          var file = (inp && inp.files && inp.files[0]) ? inp.files[0] : null;
-          var noteV = String((note && note.value) || "").trim();
-          if (!noteV && !file) { if (state) state.textContent = "写点什么，或选一个文件再投"; return; }
-          if (file && file.size > 20 * 1024 * 1024) { if (state) state.textContent = "文件超过 20MB 上限"; return; }
+          var g = (typeof box._v35Get === "function") ? box._v35Get() : { note: "", html: "", file: null };
+          if (!g.note && !g.file) { if (state) state.textContent = "写点什么，或添加一个附件再投"; return; }
+          if (g.file && g.file.size > 20 * 1024 * 1024) { if (state) state.textContent = "文件超过 20MB 上限"; return; }
           btn.disabled = true; btn.textContent = "投递中…";
           var fd = new FormData();
-          fd.append("note", noteV);
-          if (file) { fd.append("origname", file.name); fd.append("file", file); }
+          fd.append("note", g.note);
+          fd.append("note_html", g.html || ""); // v35 预留：v1 服务端忽略未知文本字段，v2 富文本落库时直接启用
+          if (g.file) { fd.append("origname", g.file.name); fd.append("file", g.file); }
           fetch("/api/activities/" + encodeURIComponent(btn.getAttribute("data-id") || "") + "/letters", { method: "POST", body: fd })
             .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
             .then(function (res) {
@@ -1164,9 +1272,7 @@ var ActivitiesSection = () => {
               }
               if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error && res.j.error.message) || "failed");
               if (state) state.textContent = "已投递，主办方会在后台看到";
-              if (note) note.value = "";
-              if (inp) inp.value = "";
-              if (fnameEl) fnameEl.textContent = "未选择文件（可选 · ≤20MB）";
+              if (typeof box._v35Reset === "function") box._v35Reset();
               btn.disabled = false; btn.textContent = "再投一封 →";
             })
             .catch(function () {
@@ -1174,6 +1280,22 @@ var ActivitiesSection = () => {
               btn.disabled = false; btn.textContent = "投信 →";
             });
         };
+        // v35 预留：滑块详情内容 API（GET /api/activities/:id/detail）探测——后端就绪后自动填充 IDEA/概要文案；未就绪（404/异常）静默走前端内置文案
+        (function () {
+          var dId = upcoming.length ? String((upcoming[0] && upcoming[0].id) || "") : "";
+          if (!dId || !ref.current) return;
+          fetch("/api/activities/" + encodeURIComponent(dId) + "/detail")
+            .then(function (r) { if (!r.ok) throw new Error("skip"); return r.json(); })
+            .then(function (j) {
+              if (!j || !j.ok || !j.data) return;
+              var sel = (window.CSS && CSS.escape) ? CSS.escape(dId) : dId;
+              var ideaEl = ref.current.querySelector(".sk-row[data-id='" + sel + "'] .skc-idea");
+              if (ideaEl && j.data.idea) ideaEl.textContent = String(j.data.idea);
+              var descEl = ref.current.querySelector(".sk-row[data-id='" + sel + "'] .skc-b-desc");
+              if (descEl && j.data.overview) descEl.textContent = String(j.data.overview);
+            })
+            .catch(function () { /* 预留接口未上线：静默回退 */ });
+        })();
         // 03 拖拽展墙：惯性 + 边界回弹 + 聚光 + 进度尺
         var wall = document.getElementById("archWall");
         var track = document.getElementById("archTrack");
@@ -2237,17 +2359,35 @@ var ActivitiesSection = () => {
     .skc-after{position:relative;order:2;padding:36px 44px 32px;padding-left:max(48px,8%);}
     .skc-eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#a07c33;margin-bottom:14px;}
     .skc-idea{font-family:'Noto Serif SC',serif;font-size:14.5px;color:#473f30;line-height:2;letter-spacing:.5px;max-width:640px;margin:0 0 26px;}
-    .skc-letter{border-top:1px solid rgba(74,66,50,0.16);padding-top:20px;max-width:640px;}
+    .skc-letter{position:relative;border-top:1px solid rgba(74,66,50,0.16);padding-top:20px;max-width:640px;}
     .skc-l-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
     .skc-l-head span:first-child{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#a07c33;}
     .skc-l-sub{font-size:11px;color:#9a917f;letter-spacing:1px;}
-    .skc-l-note{width:100%;box-sizing:border-box;background:#fbf9f3;border:1px solid rgba(74,66,50,0.28);color:#3d3527;font-family:inherit;font-size:13px;line-height:1.8;padding:10px 14px;border-radius:2px;resize:vertical;outline:none;transition:border-color .3s;}
-    .skc-l-note:focus{border-color:rgba(200,164,92,0.7);}
-    .skc-l-note::placeholder{color:#b3ab99;}
-    .skc-l-file{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap;}
-    .skc-l-pick{font-size:11px;letter-spacing:2px;padding:7px 16px;border:1px solid rgba(74,66,50,0.42);border-radius:2px;color:#5a5240;cursor:pointer;transition:border-color .3s,color .3s;background:#fbf9f3;}
-    .skc-l-pick:hover{border-color:#a07c33;color:#8a6d2f;}
-    .skc-l-fname{font-size:11px;color:#9a917f;letter-spacing:1px;word-break:break-all;}
+    .skc-ed{width:100%;box-sizing:border-box;background:#fbf9f3;border:1px solid rgba(74,66,50,0.28);color:#3d3527;font-family:inherit;font-size:13px;line-height:1.8;padding:10px 14px 6px;border-radius:2px;outline:none;transition:border-color .3s,background .3s;min-height:76px;max-height:240px;overflow-y:auto;word-break:break-word;}
+    .skc-ed:focus{border-color:rgba(200,164,92,0.7);}
+    .skc-ed:empty:before{content:attr(data-ph);color:#b3ab99;pointer-events:none;}
+    .skc-ed.over{border-color:#a07c33;background:rgba(200,164,92,0.1);}
+    .skc-ed b,.skc-ed strong{font-weight:600;}
+    .skc-ed i,.skc-ed em{font-style:italic;}
+    .skc-l-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+    .skc-l-chips:empty{display:none;}
+    .skc-l-chip{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:#5a5240;letter-spacing:.5px;padding:5px 10px;border:1px solid rgba(74,66,50,0.28);border-radius:2px;background:#fbf9f3;max-width:100%;}
+    .skc-l-chip .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;}
+    .skc-l-chip .x{cursor:pointer;color:#9a917f;font-style:normal;padding:0 2px;}
+    .skc-l-chip .x:hover{color:#8a3a2e;}
+    .skc-l-bar{position:relative;display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
+    .skc-ed-b{font-family:'JetBrains Mono',monospace;font-size:11px;width:26px;height:24px;border:1px solid transparent;border-radius:2px;color:#9a917f;background:transparent;cursor:pointer;padding:0;transition:color .3s,border-color .3s,background .3s;}
+    .skc-ed-b:hover{color:#5a5240;}
+    .skc-ed-b.on{color:#8a6d2f;border-color:rgba(160,124,51,0.55);background:rgba(200,164,92,0.14);}
+    .skc-l-sep{width:1px;height:14px;background:rgba(74,66,50,0.2);margin:0 3px;}
+    .skc-l-clip{font-size:15px;line-height:1;width:26px;height:24px;border:1px solid rgba(74,66,50,0.42);border-radius:2px;color:#5a5240;background:#fbf9f3;cursor:pointer;padding:0;transition:border-color .3s,color .3s;}
+    .skc-l-clip:hover{border-color:#a07c33;color:#8a6d2f;}
+    .skc-clip-pop{position:absolute;left:0;bottom:calc(100% + 6px);display:none;flex-direction:column;gap:2px;background:#fffdf8;border:1px solid rgba(74,66,50,0.3);border-radius:3px;box-shadow:0 8px 24px rgba(46,40,32,0.18);padding:6px;z-index:6;}
+    .skc-clip-pop.open{display:flex;}
+    .skc-clip-o{font-size:11px;letter-spacing:1px;padding:8px 18px;border:none;border-radius:2px;background:transparent;color:#5a5240;cursor:pointer;text-align:left;white-space:nowrap;transition:background .3s,color .3s;}
+    .skc-clip-o:hover{background:rgba(200,164,92,0.16);color:#8a6d2f;}
+    .skc-l-fill{flex:1;}
+    .skc-l-count{font-family:'JetBrains Mono',monospace;font-size:10px;color:#b3ab99;letter-spacing:1px;}
     .skc-l-actions{display:flex;align-items:center;gap:16px;margin-top:14px;}
     .skc-l-send{font-size:12px;letter-spacing:2px;padding:9px 24px;border-radius:2px;border:1px solid #a07c33;color:#8a6d2f;background:transparent;cursor:pointer;transition:background .4s,color .4s;}
     .skc-l-send:hover{background:#c8a45c;color:#2e2820;}
