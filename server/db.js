@@ -3,8 +3,24 @@
 // 依赖：dotenv 已由 server.js 加载，这里直接读 process.env
 
 const { Pool } = require('pg');
+const { writeFileSync, mkdirSync } = require('fs');
+const { join, dirname } = require('path');
 
 let pool = null;
+let lastHeartbeat = 0;
+const HEARTBEAT_INTERVAL_MS = 10_000;
+const HEARTBEAT_FILE = join(__dirname, '..', 'logs', 'pg-heartbeat');
+
+// 节流心跳：每 10s 最多写一次 logs/pg-heartbeat，供 pg-keeper.mjs watch 做空闲回收
+function touchHeartbeat() {
+  const now = Date.now();
+  if (now - lastHeartbeat < HEARTBEAT_INTERVAL_MS) return;
+  lastHeartbeat = now;
+  try {
+    mkdirSync(dirname(HEARTBEAT_FILE), { recursive: true });
+    writeFileSync(HEARTBEAT_FILE, String(now), 'utf-8');
+  } catch (_) { /* 写心跳失败不致命，不要把 db 调用打挂 */ }
+}
 
 function getPool() {
   if (!pool) {
@@ -24,7 +40,9 @@ function getPool() {
 }
 
 async function query(text, params) {
-  return getPool().query(text, params);
+  const r = await getPool().query(text, params);
+  touchHeartbeat();
+  return r;
 }
 
 async function close() {

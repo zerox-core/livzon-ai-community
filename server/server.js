@@ -322,6 +322,12 @@ app.use((req, res) => {
 
 // 错误处理
 app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    // 响应已开始/已发送（如 ERR_HTTP_HEADERS_SENT），不能再写。
+    // 只留 trace，把连接归还给 Node；不要 res.json() 触发再次抛错。
+    console.error('[ERROR] 响应已开始，无法写错误体（多见于 ERR_HTTP_HEADERS_SENT）:', err);
+    return next(err);
+  }
   console.error('[ERROR]', err);
   res.status(500).json({ ok: false, error: '服务内部错误' });
 });
