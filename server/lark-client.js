@@ -139,6 +139,25 @@ class LarkClient {
     }
   }
 
+  // 通讯录：部门 ID → 部门名（tenant token；本实例内缓存，避免每次请求都拉通讯录）
+  async getDepartmentName(deptId) {
+    if (!deptId) return '';
+    if (!this._deptNameCache) this._deptNameCache = new Map();
+    if (this._deptNameCache.has(deptId)) return this._deptNameCache.get(deptId);
+    try {
+      const token = await this.getTenantAccessToken();
+      const resp = await fetch(`${LARK_HOST}/open-apis/contact/v3/departments/${encodeURIComponent(deptId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await resp.json();
+      const name = (data.code === 0 && data.data && data.data.department && data.data.department.name) || '';
+      this._deptNameCache.set(deptId, name);
+      return name;
+    } catch (e) {
+      return ''; // 解析失败不阻断业务：调用方回退用原值
+    }
+  }
+
   _fallback(formData, reason) {
     if (!this.fallbackEnabled) {
       return { ok: false, mode: 'failed', error: reason };

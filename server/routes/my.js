@@ -5,9 +5,11 @@ const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
+const { LarkClient } = require('../lark-client');
 
 const router = express.Router();
 router.use(authRequired);
+const lark = new LarkClient(process.env);
 
 // GET /api/my/profile —— 当前用户的飞书账户信息
 router.get('/profile', async (req, res) => {
@@ -15,6 +17,16 @@ router.get('/profile', async (req, res) => {
     const r = await query(`SELECT id, open_id, union_id, name, email, department, avatar, role, status, last_login_at
       FROM users WHERE id=$1`, [req.user.id]);
     if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '用户不存在'));
+    // 部门兜底：历史用户 department 存的是部门 ID → 惰性解析为部门名（成功即回写；失败原样返回）
+    if (r.rows[0] && r.rows[0].department && !/[\u4e00-\u9fff]/.test(r.rows[0].department)) {
+      try {
+        const dn = await lark.getDepartmentName(r.rows[0].department);
+        if (dn) {
+          await query('UPDATE users SET department=$1 WHERE id=$2', [dn, req.user.id]);
+          r.rows[0].department = dn;
+        }
+      } catch (_) {}
+    }
     res.json(ok(r.rows[0]));
   } catch (e) {
     console.error('[my.profile]', e);

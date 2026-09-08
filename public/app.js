@@ -268,7 +268,7 @@ var Nav = ({ onNavigate, currentPage, lightMode }) => {
     title: msg.unread > 0 ? "全部已读并关闭" : "关闭",
     style: { cursor: "pointer", color: msg.unread > 0 ? "#2568d8" : subColor, fontSize: 12, lineHeight: 1 }
   }, msg.unread > 0 ? "全部已读 ×" : "×")), (function () {
-    var fmtT = function (s) { return s ? String(s).slice(0, 16).replace("T", " ") : ""; };
+    var fmtT = function (s) { if (!s) return ""; var d = new Date(s); if (isNaN(d)) return String(s).slice(0, 16).replace("T", " "); var p = function (n) { return (n < 10 ? "0" : "") + n; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()); };
     var markRead = function (mid) {
       fetch("/api/my/messages/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mid }) })
         .then(function () { refreshMsg(); }).catch(function () {});
@@ -674,7 +674,7 @@ var AdminPage = () => {
     let cancelled = false;
     const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
     const statusLabel = function (s) { return { pending: "待审核", approved: "已通过", rejected: "已驳回" }[s] || s; };
-    const fmt = function (s) { return s ? String(s).slice(0, 16).replace("T", " ") : "—"; };
+    const fmt = function (s) { if (!s) return "—"; var d = new Date(s); if (isNaN(d)) return String(s).slice(0, 16).replace("T", " "); var p = function (n) { return (n < 10 ? "0" : "") + n; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()); };
     function patchJson(url, body) {
       return fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
     }
@@ -843,7 +843,7 @@ var AdminPage = () => {
         used.add(key);
         var type = (row.querySelector('.af-type') || {}).value || 'text';
         var opts = ((row.querySelector('.af-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 20);
-        fields.push({ key: key, label: (row.querySelector('.af-lab') || {}).value || key, type: type, required: !!(row.querySelector('.af-req') || {}).checked, options: opts, placeholder: '' });
+        fields.push({ key: key, label: ((row.querySelector('.af-lab') || {}).value || '').trim(), type: type, required: !!(row.querySelector('.af-req') || {}).checked, options: opts, placeholder: '' });
       });
       var teamOpts = ((document.getElementById('af-team-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
       return {
@@ -872,6 +872,9 @@ var AdminPage = () => {
       var msg = document.getElementById('af-msg');
       if (!id || !msg) return;
       var profile = afCollect(); if (!profile) return;
+      // P0-1 根修：字段名（label）为空不允许保存——杜绝 field_a/b/c 直出报名表的脏数据再产生
+      var bad = (profile.fields || []).filter(function (f) { return !String(f.label || '').trim(); });
+      if (bad.length) { msg.textContent = '保存失败：有 ' + bad.length + ' 个字段未填「字段名」，请补齐或删除该行后再保存'; return; }
       fetch('/api/admin/activities/' + encodeURIComponent(id) + '/signup-form', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: profile }) })
         .then(function (r) { return r.json(); }).then(function (j) {
           msg.textContent = j.ok ? '✓ 已保存（站点自动生效）' : ('保存失败：' + ((j.error && j.error.message) || '未知错误'));
@@ -983,6 +986,34 @@ var SIGNUP_CSS = `
   .sig-btn:hover{background:#000;}
   .sig-done{font-size:26px;font-weight:700;color:#2a9d63;margin-bottom:10px;text-align:center;}
   @media(max-width:640px){.sig-card{padding:24px 20px;}}
+  /* —— 阶段改造：加载骨架 / 分节 / 作品来源切换 / 资产选择列表 / 草稿条 —— */
+  @keyframes sigsk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .sig-loading{display:flex;flex-direction:column;gap:14px;padding:8px 0}
+  .sig-loading .sk{height:16px;border-radius:8px;background:linear-gradient(90deg,#eee,#f7f7f7,#eee);background-size:200% 100%;animation:sigsk 1.2s infinite}
+  .sig-loading .sk.t{width:40%;height:24px}
+  .sig-loading .sk.b{width:100%;height:52px}
+  .sig-sec{margin:0 0 26px}
+  .sig-sec-t{display:flex;align-items:baseline;gap:8px;margin:0 0 12px;font-size:15px;font-weight:600;color:#1a1a1f}
+  .sig-sec-t .no{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#1a1a1f;color:#fff;font-size:11px;font-weight:700;transform:translateY(-2px);flex:none}
+  .sig-sec-t .tip{font-weight:400;font-size:12px;color:#999}
+  .sig-mode{display:flex;gap:10px;margin:0 0 14px;flex-wrap:wrap}
+  .sig-mode button{flex:1;min-width:140px;padding:10px 14px;border:1.5px solid #e2e2dc;background:#fff;border-radius:10px;font-size:13px;cursor:pointer;text-align:left;font-family:inherit}
+  .sig-mode button b{display:block;font-size:13px;margin-bottom:3px}
+  .sig-mode button span{font-size:11px;color:#999}
+  .sig-mode button.on{border-color:#1a1a1f;background:#fafaf7}
+  .sig-assets{border:1px solid #e8e8e2;border-radius:12px;overflow:hidden;margin:0 0 8px;max-height:260px;overflow-y:auto}
+  .sig-assets .it{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f2f2ee;cursor:pointer}
+  .sig-assets .it:last-child{border-bottom:none}
+  .sig-assets .it:hover{background:#fafaf7}
+  .sig-assets .it .rd{width:16px;height:16px;border-radius:50%;border:1.5px solid #bbb;flex:none;display:inline-flex;align-items:center;justify-content:center}
+  .sig-assets .it.on .rd{border-color:#1a1a1f}
+  .sig-assets .it.on .rd:after{content:'';width:8px;height:8px;border-radius:50%;background:#1a1a1f}
+  .sig-assets .it .nm{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sig-assets .it .tg{font-size:10px;color:#8a6d1a;background:#fdf6e0;border-radius:4px;padding:1px 6px;flex:none}
+  .sig-assets .it .mt{font-size:11px;color:#999;flex:none}
+  .sig-empty{padding:14px;border:1px dashed #e0e0da;border-radius:12px;text-align:center;font-size:12px;color:#999;margin:0 0 8px}
+  .sig-draft-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 0 16px;background:#f4f9f4;border:1px solid #d9ecd9;border-radius:10px;font-size:12px;color:#3c6e3c}
+  .sig-draft-bar button{margin-left:auto;border:none;background:none;color:#c0392b;font-size:12px;cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
 `;
 var SignupPage = () => {
   const ref = React.useRef(null);
@@ -991,7 +1022,17 @@ var SignupPage = () => {
     const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
     const q = {}; (String(location.hash).split("?")[1] || "").split("&").forEach(function (kv) { var i = kv.indexOf("="); if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1)); });
     const activityId = q.activity || "";
-    const fieldHtml = function (f) {
+    // 骨架屏：接口未返回前先渲染占位，消除「点了没反应」的滞后感
+    if (ref.current) ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-loading'><div class='sk t'></div><div class='sk b'></div><div class='sk b'></div><div class='sk b'></div><div class='sk' style='width:30%'></div></div></div></div>";
+    // P0-1 兜底：历史脏数据（label 空/label=key 的机器字段名 field_a/b/c…）→ 展示名兜底，不再把 key 直出给用户
+    var sigSafeLabel = function (f, fi) {
+      var lb = (f && f.label && String(f.label).trim()) || "";
+      var key = (f && f.key) || "";
+      if (!lb) return "补充信息 " + (fi + 1);
+      if (lb === key && /^(field|f|info|extra)[_-]?[a-z0-9]*$/i.test(key)) return "补充信息 " + (fi + 1);
+      return lb;
+    };
+    const fieldHtml = function (f, fi) {
       var req = f.required ? " <span class='sig-req'>*</span>" : "";
       var id = "sig-" + f.key;
       var inp;
@@ -1002,22 +1043,38 @@ var SignupPage = () => {
       else if (f.type === "number") inp = "<input id='" + id + "' type='number' placeholder='" + esc(f.placeholder || "") + "'>";
       else if (f.type === "date") inp = "<input id='" + id + "' type='date'>";
       else inp = "<input id='" + id + "' type='text' maxlength='500' placeholder='" + esc(f.placeholder || "") + "'>";
-      return "<div class='sig-field'><label>" + esc(f.label) + req + "</label>" + inp + "</div>";
+      return "<div class='sig-field'><label>" + esc(sigSafeLabel(f, fi)) + req + "</label>" + inp + "</div>";
     };
     Promise.all([
       fetch("/api/activities/" + encodeURIComponent(activityId)).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
       fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup-form").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
       fetch("/api/auth/me").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
-      fetch("/api/my/profile").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; })
+      fetch("/api/my/profile").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
+      fetch("/api/assets?mine=1&limit=100").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; })
     ]).then(function (rs) {
       if (cancelled || !ref.current) return;
-      var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3];
+      var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3], ass = rs[4];
       var profile = (pf.ok && pf.data) || {};
       if (!activityId || !act.ok) { ref.current.innerHTML = "<div class='my-empty'>活动不存在或已下线</div>"; return; }
       var a = act.data;
       var isAuth = me && me.authenticated;
       var uname = (prof.ok && prof.data && prof.data.name) || "";
       var udept = (prof.ok && prof.data && prof.data.department) || "";
+      // —— 渲染：分节结构（①基本信息 ②联系方式 ③作品文件 ④补充信息）——
+      var myAssets = (ass && ass.ok && ass.data && ass.data.assets) || [];
+      var sigMaskEmail = function (e) {
+        e = String(e || "");
+        var at = e.indexOf("@");
+        if (at < 1) return e;
+        var l = e.slice(0, at), d = e.slice(at);
+        return l.slice(0, 2) + "***" + (l.length > 4 ? l.slice(-2) : "") + d;
+      };
+      var fmtSize = function (n) { n = +n || 0; return n > 1048576 ? (n / 1048576).toFixed(1) + "MB" : n > 1024 ? Math.round(n / 1024) + "KB" : n + "B"; };
+      var draftKey = "signup_draft:" + activityId + ":" + ((me && me.data && me.data.userId) || "anon");
+      var draft = null;
+      try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch (_) { draft = null; }
+      var secNo = 0;
+      var secHead = function (t, tip) { secNo += 1; return "<div class='sig-sec'><div class='sig-sec-t'><span class='no'>" + secNo + "</span>" + t + (tip ? "<span class='tip'>" + tip + "</span>" : "") + "</div>"; };
       var h = "<div class='sig-wrap'><div class='sig-card'>";
       h += "<a class='sig-back' href='/#activities'>← 返回活动大厅</a>";
       h += "<h1 class='sig-title'>" + esc(a.name || "") + "</h1>";
@@ -1026,13 +1083,50 @@ var SignupPage = () => {
       if (!isAuth) {
         h += "<div class='sig-login'><p>报名需先登录飞书账号</p><a href='/login.html' class='sig-btn'>去登录 →</a></div>";
       } else {
+        if (draft) h += "<div class='sig-draft-bar' id='sigDraftBar'>⏳ 检测到未提交的草稿（" + esc(draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "") + "），已自动恢复<button type='button' id='sigDraftClear'>清空草稿</button></div>";
         h += "<form id='sigForm' class='sig-form'>";
+        // ① 基本信息（登录态自动带出）
+        h += secHead("基本信息", "自动读取，无需填写");
         h += "<div class='sig-field'><label>姓名</label><input type='text' value='" + esc(uname) + "' readonly></div>";
-        h += "<div class='sig-field'><label>部门</label><input type='text' value='" + esc(udept) + "' readonly></div>";
+        h += "<div class='sig-field'><label>部门</label><input type='text' value='" + esc(udept) + "' readonly><div class='sig-hint'>取自飞书组织架构；如显示为编号，稍后刷新会自动更新为部门名</div></div>";
+        h += "</div>";
+        // ② 联系方式
+        var uemail = (prof.ok && prof.data && prof.data.email) || "";
+        h += secHead("联系方式");
+        if (uemail) h += "<div class='sig-field'><label>绑定邮箱（报名凭证发送至此）</label><input type='text' value='" + esc(sigMaskEmail(uemail)) + "' readonly><div class='sig-hint'>飞书账号绑定邮箱，仅脱敏展示</div></div>";
         if (profile.contact !== false) h += "<div class='sig-field'><label>备用联系方式（选填）</label><input id='sig-contact' type='text' maxlength='100' placeholder='手机 / 邮箱'></div>";
-        if (profile.needUpload) h += "<div class='sig-field'><label>作品文件（必传）</label><input id='sig-file' type='file'><div class='sig-hint'>支持常规文件（源码包/文档/视频等），单个 ≤50MB</div></div>";
-        if (profile.team && profile.team.enabled) h += "<div class='sig-field'><label>" + esc(profile.team.label) + "</label><div class='sig-radios'>" + (profile.team.options || []).map(function (o) { return "<label><input type='radio' name='__team' value='" + esc(o) + "'> " + esc(o) + "</label>"; }).join("") + "</div></div>";
-        (profile.fields || []).forEach(function (f) { h += fieldHtml(f); });
+        h += "</div>";
+        // ③ 作品文件（needUpload 时）：上传新文件 / 从我的作品选择
+        if (profile.needUpload) {
+          h += secHead("作品文件", "用于评审，提交前请确认可访问");
+          h += "<div class='sig-mode'>" +
+            "<button type='button' id='sigModeUpload' class='on'><b>⬆ 上传新文件</b><span>源码包 / 文档 / 视频 · 单个 ≤50MB</span></button>" +
+            "<button type='button' id='sigModeAsset'><b>▣ 从我的作品选择</b><span>直接选用已上传的资产</span></button>" +
+            "</div>";
+          h += "<div id='sigUpBox'><div class='sig-field'><label>作品文件 <span class='sig-req'>*</span></label><input id='sig-file' type='file'><div class='sig-hint'>支持 zip / tar.gz / rar 等压缩包、pdf / doc / md 文档、mp4 等视频，单个 ≤50MB</div></div></div>";
+          h += "<div id='sigAsBox' style='display:none'>";
+          if (myAssets.length) {
+            h += "<div class='sig-assets'>";
+            myAssets.forEach(function (it, i) {
+              h += "<div class='it" + (i === 0 ? " on" : "") + "' data-aid='" + esc(it.id) + "'><span class='rd'></span><span class='nm'>" + esc(it.name || it.id) + "</span>" +
+                (String(it.source || "").indexOf("signup:") === 0 ? "<span class='tg'>报名作品</span>" : "") +
+                "<span class='mt'>" + esc(fmtSize(it.size)) + (it.kind ? " · " + esc(it.kind) : "") + "</span></div>";
+            });
+            h += "</div>";
+          } else {
+            h += "<div class='sig-empty'>「我的作品」里还没有资产</div>";
+          }
+          h += "<div class='sig-hint' style='margin-top:6px'>还没有现成作品？<a href='/#my?guide=upload&back=signup:" + encodeURIComponent(activityId) + "' style='color:#2568d8'>去「我的 → 资源」上传 / 登记 →</a>（完成后返回本页重新进入即可选用）</div>";
+          h += "</div>";
+        }
+        // ④ 补充信息
+        var hasExtra = (profile.team && profile.team.enabled) || (profile.fields || []).length;
+        if (hasExtra) {
+          h += secHead("补充信息");
+          if (profile.team && profile.team.enabled) h += "<div class='sig-field'><label>" + esc(profile.team.label) + " <span class='sig-req'>*</span></label><div class='sig-radios'>" + (profile.team.options || []).map(function (o) { return "<label><input type='radio' name='__team' value='" + esc(o) + "'> " + esc(o) + "</label>"; }).join("") + "</div></div>";
+          (profile.fields || []).forEach(function (f, i) { h += fieldHtml(f, i); });
+          h += "</div>";
+        }
         h += "<div id='sig-err' class='sig-err'></div>";
         h += "<button type='submit' id='sigSubmit' class='sig-btn'>提交报名</button>";
         h += "</form>";
@@ -1040,30 +1134,93 @@ var SignupPage = () => {
       h += "</div></div>";
       ref.current.innerHTML = h;
       var form = document.getElementById("sigForm");
+      // —— 作品来源模式切换（上传新文件 / 从我的作品选择）——
+      var mode = "upload";
+      var upBox = document.getElementById("sigUpBox"), asBox = document.getElementById("sigAsBox");
+      var mbU = document.getElementById("sigModeUpload"), mbA = document.getElementById("sigModeAsset");
+      function setMode(m) {
+        mode = m;
+        if (mbU) mbU.className = m === "upload" ? "on" : "";
+        if (mbA) mbA.className = m === "asset" ? "on" : "";
+        if (upBox) upBox.style.display = m === "upload" ? "" : "none";
+        if (asBox) asBox.style.display = m === "asset" ? "" : "none";
+      }
+      if (mbU) mbU.addEventListener("click", function () { setMode("upload"); });
+      if (mbA) mbA.addEventListener("click", function () { setMode("asset"); });
+      var selAssetId = (myAssets[0] && myAssets[0].id) || "";
+      if (asBox) Array.prototype.forEach.call(asBox.querySelectorAll(".it"), function (it) {
+        it.addEventListener("click", function () {
+          Array.prototype.forEach.call(asBox.querySelectorAll(".it"), function (x) { x.classList.remove("on"); });
+          it.classList.add("on");
+          selAssetId = it.getAttribute("data-aid") || "";
+        });
+      });
+      // —— 草稿：输入 600ms 防抖保存 localStorage；进入页面自动恢复；提交成功自动清除 ——
+      var draftTimer = null;
+      function draftSave() {
+        if (!form) return;
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(function () {
+          try {
+            var d = { savedAt: new Date().toISOString(), contact: (document.getElementById("sig-contact") || {}).value || "" };
+            (profile.fields || []).forEach(function (f) {
+              if (f.type === "radio") { var r = form.querySelector("input[name='" + f.key + "']:checked"); d[f.key] = r ? r.value : ""; }
+              else if (f.type === "checkbox") d[f.key] = Array.prototype.filter.call(form.querySelectorAll("input[name='" + f.key + "']:checked"), function (c) { return c.checked; }).map(function (c) { return c.value; }).join(", ");
+              else d[f.key] = (document.getElementById("sig-" + f.key) || {}).value || "";
+            });
+            var tv0 = form.querySelector("input[name='__team']:checked");
+            if (tv0) d.__team = tv0.value;
+            localStorage.setItem(draftKey, JSON.stringify(d));
+          } catch (_) {}
+        }, 600);
+      }
+      function draftRestore() {
+        if (!draft || !form) return;
+        try {
+          if (draft.contact && document.getElementById("sig-contact")) document.getElementById("sig-contact").value = draft.contact;
+          (profile.fields || []).forEach(function (f) {
+            var v = draft[f.key];
+            if (v == null) return;
+            if (f.type === "radio" || f.type === "checkbox") {
+              String(v).split(",").map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (ov) {
+                var inp = form.querySelector("input[name='" + f.key + "'][value='" + String(ov).replace(/'/g, "\\'") + "']");
+                if (inp) inp.checked = true;
+              });
+            } else if (document.getElementById("sig-" + f.key)) document.getElementById("sig-" + f.key).value = v;
+          });
+          if (draft.__team) { var tv = form.querySelector("input[name='__team'][value='" + String(draft.__team).replace(/'/g, "\\'") + "']"); if (tv) tv.checked = true; }
+        } catch (_) {}
+      }
+      function draftClear() { try { localStorage.removeItem(draftKey); } catch (_) {} var b = document.getElementById("sigDraftBar"); if (b && b.parentNode) b.parentNode.removeChild(b); }
+      var dcBtn = document.getElementById("sigDraftClear");
+      if (dcBtn) dcBtn.addEventListener("click", draftClear);
+      if (form) { draftRestore(); form.addEventListener("input", draftSave); form.addEventListener("change", draftSave); }
+      // —— 提交 ——
       if (form) form.addEventListener("submit", function (e) {
         e.preventDefault();
         var err = document.getElementById("sig-err"), btn = document.getElementById("sigSubmit");
         var response = {}, miss = [];
         if (profile.team && profile.team.enabled) { var tv = form.querySelector("input[name='__team']:checked"); if (!tv) miss.push(profile.team.label); else response.__team = tv.value; }
-        (profile.fields || []).forEach(function (f) {
+        (profile.fields || []).forEach(function (f, i) {
           var el;
           if (f.type === "radio") { var r = form.querySelector("input[name='" + f.key + "']:checked"); el = r ? r.value : ""; }
           else if (f.type === "checkbox") el = Array.prototype.filter.call(form.querySelectorAll("input[name='" + f.key + "']:checked"), function (c) { return c.checked; }).map(function (c) { return c.value; }).join(", ");
           else el = (document.getElementById("sig-" + f.key) || {}).value || "";
           el = String(el).trim();
-          if (f.required && !el) miss.push(f.label);
+          if (f.required && !el) miss.push(sigSafeLabel(f, i));
           response[f.key] = el;
         });
         if (miss.length) { err.textContent = "请填写：" + miss.join("、"); return; }
         var contact = (document.getElementById("sig-contact") || {}).value || "";
         var fileInput = document.getElementById("sig-file");
-        function finish(uploadInfo) {
+        function finish(uploadInfo, assetId) {
           if (btn) { btn.disabled = true; btn.textContent = "提交中…"; }
-          fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact: contact, upload: uploadInfo, response: response }) })
+          fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact: contact, upload: uploadInfo, assetId: assetId || "", response: response }) })
             .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
             .then(function (res) {
               if (res.s === 401) { err.textContent = "登录已失效，请重新登录"; return; }
               if (!res.j.ok) throw new Error((res.j.error && res.j.error.message) || "提交失败");
+              draftClear();
               var rep = !!(res.j.data && res.j.data.repeated);
               ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-done'>✓ " + (rep ? "您已报名过该活动" : "报名成功") + "</div><p style='text-align:center'>" + esc(a.name || "") + "</p><div style='text-align:center;margin-top:16px'><a class='sig-btn' href='/#activities'>返回活动大厅</a></div></div></div>";
             })
@@ -1077,8 +1234,15 @@ var SignupPage = () => {
             .then(function (j) { if (j.ok) cb(j.data); else { err.textContent = "文件上传失败：" + ((j.error && j.error.message) || "未知错误"); if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } } })
             .catch(function () { err.textContent = "文件上传网络异常"; if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } });
         }
-        if (profile.needUpload) { if (!fileInput || !fileInput.files || !fileInput.files[0]) { err.textContent = "请上传作品文件"; return; } uploadFirst(finish); }
-        else finish(null);
+        if (profile.needUpload) {
+          if (mode === "asset") {
+            if (!selAssetId) { err.textContent = "请先选择一个作品，或切换为「上传新文件」"; return; }
+            finish(null, selAssetId);
+          } else {
+            if (!fileInput || !fileInput.files || !fileInput.files[0]) { err.textContent = "请上传作品文件，或切换到「从我的作品选择」"; return; }
+            uploadFirst(function (up) { finish(up, (up && up.assetId) || ""); });
+          }
+        } else finish(null, "");
       });
     }).catch(function () {});
     return function () { cancelled = true; };
@@ -3110,10 +3274,12 @@ var MySection = () => {
   const ref = React.useRef(null);
   React.useEffect(() => {
     let cancelled = false;
+    // hash 查询参数（#my?guide=upload&back=signup:<id>）
+    const myq = {}; (String(location.hash).split("?")[1] || "").split("&").forEach(function (kv) { var i = kv.indexOf("="); if (i > 0) myq[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1)); });
     const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
     const statusLabel = function (s) { return { pending: "待审核", approved: "已通过", rejected: "已驳回" }[s] || s; };
     const kindLabel = function (k) { return { image: "AI 图像", video: "AI 视频", "3d": "3D 生成", app: "小程序/产品", tool: "工具/插件", skill: "Skill", mcp: "MCP 工具", source: "源码包" }[k] || k; };
-    const fmt = function (s) { return s ? String(s).slice(0, 16).replace("T", " ") : "—"; };
+    const fmt = function (s) { if (!s) return "—"; var d = new Date(s); if (isNaN(d)) return String(s).slice(0, 16).replace("T", " "); var p = function (n) { return (n < 10 ? "0" : "") + n; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()); };
     // 活动记录 → 跳活动页并自动打开对应面板（from=my 时面板顶部出现「返回个人中心」临时按钮）
     window.myOpenRecord = function (id, kind) {
       location.hash = "#activities?open=" + String(kind || "upcoming") + ":" + String(id || "") + "&from=my";
@@ -3280,7 +3446,7 @@ var MySection = () => {
             var dl = (x.category === "program" && x.backend === "remote")
               ? "<a class='my-tag' href='" + esc(x.storage_url || x.remote_url || "#") + "' target='_blank' rel='noopener'>查看 ↗</a>"
               : "<a class='my-tag' href='#' onclick='event.preventDefault();window.myAssetDownload(\"" + encodeURIComponent(x.id) + "\");'>下载 ⤓</a>";
-            return "<tr><td>" + esc(x.name || x.id) + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
+            return "<tr><td>" + esc(x.name || x.id) + (String(x.source || "").indexOf("signup:") === 0 ? " <span style='font-size:10px;color:#8a6d1a;background:#fdf6e0;border-radius:4px;padding:1px 6px;vertical-align:1px;white-space:nowrap'>报名作品</span>" : "") + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
               "<button class='my-tag my-tag-del' onclick='window.myAssetDelete(\"" + encodeURIComponent(x.id) + "\");'>删</button></td></tr>";
           }).join("") + "</tbody></table>";
       }
@@ -3290,6 +3456,41 @@ var MySection = () => {
         "<button class='my-tag my-tag-accent' onclick='window.myOpenAssetsPanel(\"program\")'>⚡ 上传程序</button>" +
         "</span></div>" +
         "<div id='my-assets-list'>" + assetsListHtml(myAssets) + "</div></div>";
+      // ===== P3 聚光引导：高亮目标区 + 引导卡（知道了我 / 返回报名表）=====
+      window.myGuideRing = function (targetId, back) {
+        window.myGuideDismiss();
+        var el = document.getElementById(targetId);
+        if (!el) return;
+        try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+        var r = el.getBoundingClientRect();
+        var pad = 12;
+        var spot = document.createElement("div");
+        spot.id = "__guideSpot";
+        spot.style.cssText = "position:fixed;z-index:11999;border-radius:14px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);transition:all .3s;";
+        spot.style.top = Math.max(r.top - pad, 8) + "px";
+        spot.style.left = Math.max(r.left - pad, 8) + "px";
+        spot.style.width = Math.min(r.width + pad * 2, window.innerWidth - 16) + "px";
+        spot.style.height = (r.height + pad * 2) + "px";
+        document.body.appendChild(spot);
+        var m = String(back || "").match(/^signup:(.+)$/);
+        var backTo = m ? "#signup?activity=" + encodeURIComponent(m[1]) : "";
+        var card = document.createElement("div");
+        card.id = "__guideCard";
+        card.style.cssText = "position:fixed;z-index:12001;left:50%;transform:translateX(-50%);bottom:32px;background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,0.25);padding:18px 20px;max-width:440px;width:calc(100% - 48px);font-size:13px;color:#333;";
+        card.innerHTML = "<div style='font-weight:700;font-size:14px;margin-bottom:6px'>把作品上传到「我的资源」</div>" +
+          "<div style='line-height:1.8;margin-bottom:12px'>① 点上方高亮区的 <b>📤 本地上传</b> 传文件，或 <b>⚡ 上传程序</b> 登记仓库；<br>② GitHub 公开仓库可在登记时一键拉取 README 留档；<br>③ 完成后回到报名页，切换「从我的作品选择」即可直接提交。</div>" +
+          "<div style='display:flex;gap:10px;justify-content:flex-end'>" +
+          (backTo ? "<button id='__guideBack' style='border:none;background:#1a1a1f;color:#fff;border-radius:999px;padding:8px 18px;font-size:13px;cursor:pointer;font-family:inherit'>返回报名表 →</button>" : "") +
+          "<button id='__guideOk' style='border:none;background:#eee;color:#333;border-radius:999px;padding:8px 18px;font-size:13px;cursor:pointer;font-family:inherit'>知道了</button></div>";
+        document.body.appendChild(card);
+        var okBtn = document.getElementById("__guideOk");
+        if (okBtn) okBtn.onclick = window.myGuideDismiss;
+        var backBtn = document.getElementById("__guideBack");
+        if (backBtn) backBtn.onclick = function () { window.myGuideDismiss(); location.hash = backTo; };
+      };
+      window.myGuideDismiss = function () {
+        ["__guideSpot", "__guideCard"].forEach(function (id) { var e = document.getElementById(id); if (e && e.parentNode) e.parentNode.removeChild(e); });
+      };
       window.myAssetsRefresh = function () {
         fetch("/api/assets?mine=1").then(function (r) { return r.json(); }).then(function (j) {
           var el = document.getElementById("my-assets-list");
@@ -3320,7 +3521,11 @@ var MySection = () => {
           (isProg
             ? "<div class='my-overlay-body'>" +
               "<label>程序名称<input id='ap-name' class='my-input' placeholder='例如：周报小结 Agent' maxlength='255'></label>" +
-              "<label>仓库地址（内网 gitlab）<input id='ap-repo' class='my-input' placeholder='http://gitlab.internal/group/repo'></label>" +
+              "<label>仓库地址（内网 gitlab 或 github.com 公开仓库）<input id='ap-repo' class='my-input' placeholder='http://gitlab.internal/group/repo 或 https://github.com/owner/repo'></label>" +
+              "<div id='ap-gh-box' style='display:none;margin:0 0 10px'>" +
+                "<button type='button' class='my-tag' id='ap-gh-fetch' style='margin-bottom:6px'>📖 拉取 GitHub README</button>" +
+                "<div id='ap-gh-view' style='display:none;max-height:180px;overflow:auto;white-space:pre-wrap;font-family:monospace;font-size:11px;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px 10px'></div>" +
+              "</div>" +
               "<label>资源中心地址<textarea id='ap-remote' class='my-input' rows='2' placeholder='https://resource-center.example/items/42（提交后由 agent 回填）'></textarea></label>" +
               "<div class='my-ap-prompt' id='ap-prompt'></div>" +
               "<button class='my-tag' onclick='window.myAssetCopyPrompt()'>📋 复制提示词</button>" +
@@ -3336,6 +3541,28 @@ var MySection = () => {
           "</div>";
         document.body.appendChild(ov);
         window.__assetPanel = ov;
+        // GitHub 仓库识别：repo 输入含 github.com 时展示 README 拉取（服务端代理，绕过 CORS）
+        var repoInput = document.getElementById('ap-repo');
+        var ghBox = document.getElementById('ap-gh-box'), ghBtn = document.getElementById('ap-gh-fetch'), ghView = document.getElementById('ap-gh-view');
+        function ghToggle() {
+          var isGh = /github\.com\//i.test((repoInput && repoInput.value) || '');
+          if (ghBox) ghBox.style.display = isGh ? '' : 'none';
+        }
+        if (repoInput) { repoInput.addEventListener('input', ghToggle); ghToggle(); }
+        if (ghBtn) ghBtn.addEventListener('click', function () {
+          var ru = (repoInput && repoInput.value) || '';
+          if (!/github\.com\//i.test(ru)) { window.alert('请先填写 github.com 仓库地址'); return; }
+          ghBtn.textContent = '拉取中…';
+          fetch('/api/assets/github-readme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repoUrl: ru }) })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+              ghBtn.textContent = '📖 拉取 GitHub README';
+              if (!j.ok) { window.alert((j.error && j.error.message) || 'README 拉取失败'); return; }
+              window.__ghReadme = { readme: String(j.data.readme || ''), repo: j.data.repo, path: j.data.path, fetchedAt: j.data.fetchedAt };
+              if (ghView) { ghView.style.display = ''; ghView.textContent = window.__ghReadme.readme.slice(0, 4000) + (window.__ghReadme.readme.length > 4000 ? '\n…（预览截断，完整内容已留存）' : ''); }
+            })
+            .catch(function () { ghBtn.textContent = '📖 拉取 GitHub README'; window.alert('README 拉取失败（网络异常）'); });
+        });
       };
       window.myCloseAssetsPanel = function () {
         var ov = document.getElementById("__assetPanel");
@@ -3370,6 +3597,10 @@ var MySection = () => {
           var status = (document.getElementById("ap-status") || {}).value || "pending";
           var report = (document.getElementById("ap-report") || {}).value || "";
           if (!name.trim()) { window.alert("请填写程序名称"); return; }
+          // GitHub 公开仓库：登记时把服务端拉取的 README 追加进 agent 报告留存（可追溯）
+          if (window.__ghReadme && /github\.com\//i.test(repo)) {
+            report = (report ? report + "\n\n" : "") + "—— GitHub README（" + window.__ghReadme.repo + " · " + window.__ghReadme.path + " · 拉取于 " + window.__ghReadme.fetchedAt + "）——\n" + window.__ghReadme.readme;
+          }
           fetch("/api/assets", { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ category: "program", backend: "remote", kind: "source", name: name, repo_url: repo, remote_url: remote, remote_status: status, agent_report: report, stage: "submitted" }) })
             .then(function (r) { return r.json(); })
@@ -3407,11 +3638,15 @@ var MySection = () => {
       }
       h += "</div>";
       ref.current.innerHTML = h;
+      // P3 聚光引导触发：#my?guide=upload（报名页「去上传作品」跳转而来）
+      if ((myq.guide || "") === "upload") {
+        setTimeout(function () { window.myGuideRing("my-assets-list", myq.back || ""); }, 350);
+      }
     }).catch(function () {});
     return function () {
       cancelled = true;
       try { delete window.myOpenRecord; } catch (_) { window.myOpenRecord = undefined; }
-      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
+      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit", "myGuideRing", "myGuideDismiss"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `

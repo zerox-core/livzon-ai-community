@@ -11,7 +11,7 @@ const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
 const { userSnapshot, utf8Field } = require('../lib/community-core');
-const { saveUploadedFile, createAsset } = require('../lib/asset-store');
+const { saveUploadedFile, createAsset, getAsset } = require('../lib/asset-store');
 const { buildReminderCard } = require('../lib/reminders');
 const { LarkClient } = require('../lark-client');
 const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
@@ -205,6 +205,7 @@ router.post('/:id/signup/upload', authRequired, (req, res) => {
         name: saved.name,
         size: f.size,
         storage_url: saved.url,
+        source: 'signup:' + id,
       });
       res.status(201).json(ok({ url: saved.url, filename: saved.name, size: saved.size, assetId: asset.id }));
     } catch (e2) {
@@ -220,7 +221,7 @@ router.post('/:id/signup/upload', authRequired, (req, res) => {
 router.post('/:id/signup', authRequired, async (req, res) => {
   const id = String(req.params.id || '').slice(0, 64);
   const body = req.body || {};
-  const rules = { contact: { type: 'string', max: 100 } };
+  const rules = { contact: { type: 'string', max: 100 }, assetId: { type: 'string', max: 64 } };
   const { valid, errors, casted } = checkRules(body, rules);
   if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
   try {
@@ -239,19 +240,36 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     if (profile.team && profile.team.enabled && !String(body.response && body.response.__team || '').trim()) {
       return res.status(400).json(err(ErrorCodes.VALIDATION, `「${profile.team.label}」为必填`));
     }
-    if (profile.needUpload && !(body.upload && body.upload.url)) {
-      return res.status(400).json(err(ErrorCodes.VALIDATION, '请上传作品文件'));
-    }
     const snap = await userSnapshot(req);
-    const upload = body.upload && typeof body.upload === 'object'
+    // 部门兜底：历史用户 department 存的是部门 ID → 惰性解析为部门名（成功即回写；失败不阻断报名）
+    if (snap.dept && !/[\u4e00-\u9fff]/.test(snap.dept)) {
+      try {
+        const dn = await lark.getDepartmentName(snap.dept);
+        if (dn) { snap.dept = dn; await query('UPDATE users SET department=$1 WHERE id=$2', [dn, req.session.userId]); }
+      } catch (_) {}
+    }
+    // 作品二选一：assetId（从「我的作品」选）优先；直传 upload 兼容旧路径。快照由服务端回读重建，不信任客户端。
+    let assetId = '';
+    let upload = body.upload && typeof body.upload === 'object'
       ? { filename: String(body.upload.filename || '').slice(0, 255), size: Number(body.upload.size) || 0, storage_url: String(body.upload.url || '').slice(0, 500) }
       : {};
+    if (casted.assetId) {
+      const a2 = await getAsset(casted.assetId);
+      if (!a2 || a2.user_id !== req.session.userId) {
+        return res.status(400).json(err(ErrorCodes.VALIDATION, '所选作品不存在或不属于当前用户'));
+      }
+      assetId = a2.id;
+      upload = { filename: String(a2.name || '').slice(0, 255), size: Number(a2.size) || 0, storage_url: String(a2.storage_url || a2.remote_url || '').slice(0, 500) };
+    }
+    if (profile.needUpload && !upload.storage_url) {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '请上传作品文件'));
+    }
     const response = body.response && typeof body.response === 'object' ? body.response : {};
     const r = await query(
-      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note, upload, response)
-       VALUES ($1,$2,$3,$4,$5,'',$6,$7)
+      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note, upload, response, asset_id)
+       VALUES ($1,$2,$3,$4,$5,'',$6,$7,$8)
        ON CONFLICT (user_id, activity_id) DO NOTHING RETURNING id`,
-      [id, req.session.userId, snap.name, snap.dept, (casted.contact || '').trim(), JSON.stringify(upload), JSON.stringify(response)]);
+      [id, req.session.userId, snap.name, snap.dept, (casted.contact || '').trim(), JSON.stringify(upload), JSON.stringify(response), assetId || null]);
     if (!r.rows.length) {
       return res.json(ok({ signedUp: true, repeated: true, message: '您已报名过该活动' }));
     }

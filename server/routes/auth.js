@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { roleAfterLogin } = require('../lib/admins');
+const { LarkClient } = require('../lark-client');
 
 const router = express.Router();
 
@@ -133,7 +134,12 @@ async function upsertUser(info, token) {
   const openId = info.open_id || info.openid || '';
   const name = info.name || '';
   const email = info.email || '';
-  const dept = (info.department_ids && info.department_ids[0]) || '';
+  // 部门 ID → 部门名（解析失败/未配置则回退原值，绝不阻断登录）
+  let dept = (info.department_ids && info.department_ids[0]) || '';
+  try {
+    const dn = await new LarkClient(process.env).getDepartmentName(dept);
+    if (dn) dept = dn;
+  } catch (_) {}
   const avatar = (info.avatar_url || info.avatar || '');
   const unionId = info.union_id || '';
 

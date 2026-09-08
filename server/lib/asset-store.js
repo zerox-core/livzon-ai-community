@@ -78,13 +78,13 @@ function saveUploadedFile(buffer, { category = '', kind = '', origname = '' } = 
 
 // 写 assets 表（本地上传或登记外部资源两种 row）。返回完整行。
 // row 可选字段：user_id/category/backend/kind/name/size/storage_url/checksum/
-//             repo_url/remote_url/remote_status/agent_report/stage/guide
+//             repo_url/remote_url/remote_status/agent_report/stage/guide/source
 async function createAsset(row = {}) {
   const r = await query(
     `INSERT INTO assets
        (id, user_id, category, backend, kind, name, size, storage_url, checksum,
-        repo_url, remote_url, remote_status, agent_report, stage, guide)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        repo_url, remote_url, remote_status, agent_report, stage, guide, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING *`,
     [
       row.id || genId('ast'),
@@ -102,6 +102,7 @@ async function createAsset(row = {}) {
       row.agent_report || '',
       row.stage || '',
       row.guide || '',
+      row.source || '',
     ]
   );
   return r.rows[0];
@@ -129,7 +130,7 @@ async function listAssets({ user_id, category, backend, limit = 30, offset = 0 }
   const total = cnt.rows[0].n;
   const rows = await query(
     `SELECT id, user_id, category, backend, kind, name, size, storage_url, checksum,
-            repo_url, remote_url, remote_status, stage, guide, downloads, created_at, updated_at
+            repo_url, remote_url, remote_status, stage, guide, source, downloads, created_at, updated_at
      ${base} ORDER BY created_at DESC, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
