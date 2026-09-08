@@ -10,6 +10,7 @@ const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
 const { genId, fmtTime, userSnapshot, likeToggleSQL, utf8Field } = require('../lib/community-core');
+const { saveUploadedFile, createAsset } = require('../lib/asset-store');
 
 const router = express.Router();
 
@@ -337,8 +338,6 @@ function getUploadMw() {
 router.post('/upload', authRequired, (req, res) => {
   const mw = getUploadMw();
   if (!mw) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, '上传未启用：请在 server/ 执行 npm install multer'));
-  const UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'community');
-  try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (_) {}
   mw(req, res, async (e) => {
     if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.message));
     const f = req.file;
@@ -353,10 +352,23 @@ router.post('/upload', authRequired, (req, res) => {
     if (isImg && f.size > 5 * 1024 * 1024) return res.status(400).json(err(ErrorCodes.VALIDATION, '图片不能超过 5MB'));
     if (isDoc && f.size > 20 * 1024 * 1024) return res.status(400).json(err(ErrorCodes.VALIDATION, '附件不能超过 20MB'));
     try {
-      // 服务端随机文件名：防路径穿越 / 防信任原始名；扩展名来自白名单故安全
-      const fname = genId(isImg ? 'img' : 'file') + '.' + ext;
-      await fs.promises.writeFile(path.join(UPLOAD_DIR, fname), f.buffer);
-      res.json(ok({ url: '/uploads/community/' + fname, name: orig, size: f.size }));
+      // 跨端复用 asset-store：统一落盘 public/uploads/assets/<category>/ + 登记 assets 表
+      const saved = saveUploadedFile(f.buffer, {
+        category: isImg ? 'media' : 'doc',
+        kind: isImg ? 'image' : 'doc',
+        origname: orig,
+      });
+      await createAsset({
+        user_id: req.session.userId,
+        category: saved.category,
+        backend: 'local',
+        kind: saved.kind,
+        name: saved.name,
+        size: saved.size,
+        storage_url: saved.url,
+      });
+      // 保持既有响应形状（前端 app.js 读 data.url）；跨端复用已落盘 + 登记
+      res.json(ok({ url: saved.url, name: saved.name, size: saved.size }));
     } catch (e2) {
       console.error('[community.upload]', e2);
       res.status(500).json(err(ErrorCodes.INTERNAL, '文件写入失败'));
