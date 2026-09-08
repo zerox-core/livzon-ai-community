@@ -1,6 +1,6 @@
 # AGENTS.md — 本设备的任务开发规范
 
-> 本项目：`livzon-ai-community`（丽珠 AI 社团平台），工作目录 `D:\pince\pingce`。
+> 本项目：`livzon-ai-community`（丽珠 AI 社团平台），工作目录 `F:\pingce`。
 > 本文件是**本设备（开发机）上负责「单独布置任务」开发时遵循的规范**，随 `xiazai` 分支维护。其它设备是管理设备。
 
 ---
@@ -15,11 +15,12 @@
 
 ## 2. 本地环境速记（细节见 `docs/HANDOFF-LOCAL-ENV.md`）
 
-- Node v22、端口 `8787`；启动 `node start.mjs`（停止 `--stop` / 状态 `--status`）。
-- PostgreSQL：`C:\Program Files\PostgreSQL\15`，`postgres` / `127.0.0.1:5432` / 库 `pingce`；
-  **真实口令为 `382114`**（`scram-sha-256`；`.env` 填 `123456` 会认证失败）。
+- Node v22.23.2、端口 `8787`；启动 `node start.mjs`（停止 `--stop` / 状态 `--status`）。
+- PostgreSQL：独立安装于 `E:\PostgreSQL`，数据目录 `E:\PostgreSQL\data`，`postgres` / `127.0.0.1:5432` / 库 `pingce`；
+  **真实口令为 `123456`**（`server/.env` 中 `DB_PASSWORD=123456`，已验证可正常连接）。
+- PG 由 `pg-keeper.mjs` 统一管理：`node pg-keeper.mjs ensure`（启动）/ `status`（状态）/ `stop`（停止）/ `wait`（就绪轮询）；`start.mjs` 启动前会自动 `wait`。
 - `server/.env` 已 gitignore；`LARK_*`、`DB_PASSWORD`、`SESSION_SECRET` 等真实值**不入库、不提交**。
-- 本机当前以太网 IP：`192.168.62.53`（换网以 `/api/info` 的 `ips` 为准，`SITE_INTRANET_URL` 需同步）。
+- 本机当前 WLAN IP：`192.168.1.6`（换网以 `/api/info` 的 `ips` 为准，`SITE_INTRANET_URL` 需同步）。
 
 ## 3. 后端代码模式（沿用现有约定）
 

@@ -11,32 +11,32 @@
 
 | 项 | 本机取值 |
 |---|---|
-| 仓库目录 | `D:\pince\pingce` |
-| Node | v22.17.0（要求 18+） |
+| 仓库目录 | `F:\pingce` |
+| Node | v22.23.2（要求 18+） |
 | 服务端口 | 8787（`node start.mjs`） |
-| PostgreSQL | 独立安装于 **`C:\Program Files\PostgreSQL\15`**（注意：`docs/HANDOFF.md` 第 11 行写的 `E:\PostgreSQL` 是另一台机的路径，本机是 C:） |
+| PostgreSQL | 独立安装于 **`E:\PostgreSQL`**，数据目录 `E:\PostgreSQL\data` |
 | 连接 | postgres 用户 / `127.0.0.1:5432` / 库 `pingce` |
-| 迁移 | 10 个脚本成功（schema 基线 004~011） |
-| 种子 | `works`=28，`activities`=10 |
-| 本机当前以太网 IP | `192.168.62.53`（换网络/热点后以 `/api/info` 的 `ips` 为准） |
+| 迁移 | 11 个脚本成功（004~013，含 011 双文件） |
+| 种子 | `works`=29，`activities`=10 |
+| 本机当前 WLAN IP | `192.168.1.6`（换网络/热点后以 `/api/info` 的 `ips` 为准） |
 
 ---
 
 ## 1) 数据库口令陷阱（最关键）
 
-- 本机 `postgres` 真实口令是 **382114**，记录在 `%APPDATA%\postgresql\pgpass.conf`：
-  `127.0.0.1:5432:*:postgres:382114`
-- 在 `.env` 里给 `123456` 会被 `scram-sha-256` **拒绝**（"密码认证失败"）。原因：`scram-sha-256` 校验真实口令；且 `.env` 显式传 `DB_PASSWORD` 会**绕过** pgpass 文件的自动回落。
-- 之前迁移/种子能跑通，正是 `pg` 库没显式给口令时自动读了 pgpass 文件。
-- 本机 `server/.env` 因此写的是 `DB_PASSWORD=382114`。
+- 本机 `postgres` 真实口令是 **123456**，`server/.env` 中 `DB_PASSWORD=123456`，已验证可正常连接。
+- 旧文档记录的 `382114` 已失效，使用该口令会报"密码认证失败"。
+- PG 采用 `scram-sha-256` 认证；`.env` 显式传 `DB_PASSWORD` 会绕过 pgpass 文件自动回落，因此必须与真实口令一致。
+- PG 可执行文件位于 `E:\PostgreSQL\bin\`，`pg_ctl` / `psql` 均用绝对路径调用。
+- 本机 `server/.env` 当前写的是 `DB_PASSWORD=123456`。
 
-**换设备必做**：先实测，再填 `.env`。不要照抄本机的 382114：
+**换设备必做**：先实测，再填 `.env`。不要照抄本机的 123456：
 ```bash
-# 在目标机跑（Windows 需先加 PG bin 到 PATH 或用绝对路径）：
-psql -h 127.0.0.1 -U postgres -d postgres -c "SELECT 1;"
+# 在目标机跑（Windows 用绝对路径，PG bin 在 E:\PostgreSQL\bin）：
+set PGPASSWORD=你的口令 && E:\PostgreSQL\bin\psql.exe -h 127.0.0.1 -U postgres -d postgres -c "SELECT 1;"
 # 能过 = 该口令可用；把实测口令写入 server/.env 的 DB_PASSWORD
 ```
-若确实想让口令为 `123456`，需先 `ALTER USER postgres PASSWORD '123456';` 改掉真实口令，再更新 `.env`。
+若需修改口令：`ALTER USER postgres PASSWORD '新口令';`，然后同步更新 `.env` 的 `DB_PASSWORD`。
 
 ---
 
@@ -47,8 +47,8 @@ git clone <远程仓库> pingce && cd pingce
 cd server && npm install && cd ..
 
 # 建库（若已存在则跳过）
-#   Windows: 把 PG bin 加入 PATH 或用绝对路径 /c/Program Files/PostgreSQL/<ver>/bin
-createdb pingce
+#   Windows: PG bin 在 E:\PostgreSQL\bin，用绝对路径
+E:\PostgreSQL\bin\createdb.exe pingce
 
 # 拷贝模板并编辑 server/.env（按上文填 LARK_*、DB_*、SESSION_SECRET、SITE_INTRANET_URL）
 cp server/env.example server/.env
@@ -57,8 +57,11 @@ cp server/env.example server/.env
 node server/sql/run_migrate.js
 
 # 种子数据
-node server/sql/seed.js                 # works：28 件
+node server/sql/seed.js                 # works：29 件
 node server/sql/import_activities.js    # activities：10 个
+
+# 启动 PG（如未运行；start.mjs 会自动 wait，但 ensure 可提前确认）
+node pg-keeper.mjs ensure
 
 # 启动（自带 /api/info 健康检查）
 node start.mjs
@@ -89,6 +92,10 @@ node start.mjs
 | `node start.mjs` | 启动（PID 写 `logs/server.pid`，运行输出 `logs/server.log`） |
 | `node start.mjs --stop` | 停止 |
 | `node start.mjs --status` | 状态 |
+| `node pg-keeper.mjs ensure` | 启动 PostgreSQL（仅当未就绪时） |
+| `node pg-keeper.mjs status` | 查看 PG 就绪状态 |
+| `node pg-keeper.mjs stop` | 停止 PostgreSQL |
+| `node pg-keeper.mjs wait` | 等待 PG 就绪（默认 30s 超时） |
 | `node server/sql/run_migrate.js` | 迁移（幂等） |
 | `node server/sql/import_activities.js` | 活动数据刷新（改 `public/data/activities.json` 后执行） |
 | `node server/sql/seed_admin.js --list|--promote|--demote` | 存量管理员处理 |
@@ -99,4 +106,4 @@ node start.mjs
 
 - 服务是否在跑：`node start.mjs --status`（或 `curl http://127.0.0.1:8787/api/info`）
 - 当前 IP 是否变化：见 `/api/info` 的 `ips` 字段，若变了就同步更新 `.env` 的 `SITE_INTRANET_URL`。
-- 最近一次已验状态：PID 10072，`/api/info` 返回 `{"service":"livzon-ai-club","version":"1.0.0","port":8787,"ips":[...],"larkConfigured":true,"fallbackEnabled":true}`。
+- 最近一次已验状态：PID 36644，`/api/info` 返回 `{"service":"livzon-ai-club","version":"1.0.0","port":8787,"ips":[{"name":"Mihomo","ip":"198.18.0.1"},{"name":"Tailscale","ip":"100.67.163.44"},{"name":"WLAN","ip":"192.168.1.6"}],"larkConfigured":true,"fallbackEnabled":true}`。
