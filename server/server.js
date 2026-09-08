@@ -23,6 +23,7 @@ const adminRouter = require('./routes/admin');
 const registerRouter = require('./routes/register');
 const voteRouter = require('./routes/vote');
 const artifactRouter = require('./routes/artifact');
+const assetsRouter = require('./routes/assets');
 const authRouter = require('./routes/auth');
 const myRouter = require('./routes/my');
 const communityRouter = require('./routes/community');
@@ -150,6 +151,9 @@ app.use('/api/vote', voteRouter);
 
 // 作品资源/制品
 app.use('/api/artifacts', artifactRouter);
+
+// 跨端复用「资源(asset)子系统」（契约见 docs/api/assets-api.md）
+app.use('/api/assets', assetsRouter);
 
 // 活动（列表/详情 DB 同构读 + 预约写，契约见 routes/activities.js）
 app.use('/api/activities', activitiesRouter);
