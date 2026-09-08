@@ -8,7 +8,7 @@ const path = require('path');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, ASSET_CATEGORIES } = require('../lib/asset-store');
+const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, deleteAsset, removeLocalFile, ASSET_CATEGORIES } = require('../lib/asset-store');
 
 const router = express.Router();
 
@@ -142,6 +142,24 @@ router.get('/:id', async (req, res) => {
     res.json(ok({ asset: a }));
   } catch (e) {
     console.error('[assets.get]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// DELETE /api/assets/:id —— 删除资源（仅所有者或 admin；本地文件一并清理；业务引用 ON DELETE SET NULL）
+router.delete('/:id', authRequired, async (req, res) => {
+  try {
+    const a = await getAsset(req.params.id);
+    if (!a) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '资源不存在'));
+    const isAdmin = req.session.role === 'admin';
+    if (!isAdmin && a.user_id !== req.session.userId) {
+      return res.status(403).json(err(ErrorCodes.PERMISSION, '只能删除自己的资源'));
+    }
+    removeLocalFile(a.storage_url);
+    await deleteAsset(req.params.id);
+    res.json(ok({ deleted: true }));
+  } catch (e) {
+    console.error('[assets.delete]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

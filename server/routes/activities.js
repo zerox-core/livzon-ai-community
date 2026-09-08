@@ -10,7 +10,8 @@ const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { userSnapshot, genId, utf8Field } = require('../lib/community-core');
+const { userSnapshot, utf8Field } = require('../lib/community-core');
+const { saveUploadedFile, createAsset } = require('../lib/asset-store');
 const { buildReminderCard } = require('../lib/reminders');
 const { LarkClient } = require('../lark-client');
 const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
@@ -18,8 +19,7 @@ const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/s
 const router = express.Router();
 const lark = new LarkClient(process.env);
 const DATA_PATH = path.join(__dirname, '..', '..', 'public', 'data', 'activities.json');
-const SIGNUP_UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'signup');
-const signupMaxMb = () => parseInt(process.env.ARTIFACT_MAX_MB || '50', 10);
+const signupMaxMb = () => parseInt(process.env.ASSET_MAX_MB || '50', 10);
 
 function readJsonMeta() {
   try {
@@ -194,11 +194,24 @@ router.post('/:id/signup/upload', authRequired, (req, res) => {
     const f = req.file;
     if (!f) return res.status(400).json(err(ErrorCodes.VALIDATION, '缺少文件字段 file'));
     const orig = utf8Field(String(f.originalname || '')).slice(0, 255).replace(/[\\/:*?"<>|\r\n]/g, '_');
-    const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
-    const fname = 'su-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7) + (ext ? '.' + ext : '');
-    try { fs.mkdirSync(SIGNUP_UPLOAD_DIR, { recursive: true }); } catch (_) {}
-    await fs.promises.writeFile(path.join(SIGNUP_UPLOAD_DIR, fname), f.buffer);
-    res.status(201).json(ok({ url: '/uploads/signup/' + fname, filename: orig, size: f.size }));
+    try {
+      // 走资产子系统：统一落盘 /uploads/assets/<cat>/ + 登记 assets 行（category 按扩展名自动推断）
+      const saved = saveUploadedFile(f.buffer, { origname: orig });
+      const asset = await createAsset({
+        user_id: req.session.userId,
+        category: saved.category,
+        backend: 'local',
+        kind: saved.kind || 'file',
+        name: saved.name,
+        size: f.size,
+        storage_url: saved.url,
+      });
+      res.status(201).json(ok({ url: saved.url, filename: saved.name, size: saved.size, assetId: asset.id }));
+    } catch (e2) {
+      if (e2.status === 400) return res.status(400).json(err(ErrorCodes.VALIDATION, e2.message));
+      console.error('[activities.signup.upload]', e2);
+      res.status(500).json(err(ErrorCodes.INTERNAL, '文件写入失败'));
+    }
   });
 });
 
@@ -260,8 +273,7 @@ router.post('/:id/signup', authRequired, async (req, res) => {
 // ===== v32 活动投信口 =====
 // POST /api/activities/:id/letters —— 投信（authRequired；multipart：note + origname + 可选 file）
 // 私信通道：不进公开接口、不发 notifications，仅管理员后台汇总（GET /api/admin/activities/letters）。
-// 留言语义：一人可多次投信（与 reserve 的幂等预约不同）。文件落 public/uploads/letters/（multer 内存中转，与 artifacts 同款）。
-const LETTER_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'letters');
+// 留言语义：一人可多次投信（与 reserve 的幂等预约不同）。附件走资产子系统落 public/uploads/assets/。
 const LETTER_EXT = new Set([
   'zip', 'tar', 'gz', 'tgz', 'rar', '7z',
   'mp4', 'mov', 'webm', 'mp3', 'wav',
@@ -290,21 +302,29 @@ router.post('/:id/letters', authRequired, (req, res) => {
     try {
       const a = await query(`SELECT id FROM activities WHERE id=$1`, [id]);
       if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
-      let fileName = '', size = 0, storageUrl = '';
+      let fileName = '', size = 0, storageUrl = '', assetId = null;
       if (f) {
         const orig = (origname || utf8Field(String(f.originalname || ''))).slice(0, 255);
         const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
         if (!LETTER_EXT.has(ext)) return res.status(400).json(err(ErrorCodes.VALIDATION, `不支持的文件类型：${ext || '未知'}`));
-        const fname = genId('letter') + '.' + ext; // 随机名防路径穿越/防信任原始名
-        try { fs.mkdirSync(LETTER_DIR, { recursive: true }); } catch (_) {}
-        await fs.promises.writeFile(path.join(LETTER_DIR, fname), f.buffer);
-        fileName = orig; size = f.size; storageUrl = '/uploads/letters/' + fname;
+        // 走资产子系统：统一落盘 /uploads/assets/<cat>/ + 登记 assets 行
+        const saved = saveUploadedFile(f.buffer, { origname: orig });
+        const asset = await createAsset({
+          user_id: req.session.userId,
+          category: saved.category,
+          backend: 'local',
+          kind: saved.kind || 'file',
+          name: saved.name,
+          size: f.size,
+          storage_url: saved.url,
+        });
+        fileName = saved.name; size = f.size; storageUrl = saved.url; assetId = asset.id;
       }
       const snap = await userSnapshot(req);
       const r = await query(
-        `INSERT INTO activity_letters (activity_id, user_id, name, dept, note, file_name, file_size, storage_url)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at`,
-        [id, req.session.userId, snap.name, snap.dept, note, fileName, size, storageUrl]);
+        `INSERT INTO activity_letters (activity_id, user_id, name, dept, note, file_name, file_size, storage_url, asset_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, created_at`,
+        [id, req.session.userId, snap.name, snap.dept, note, fileName, size, storageUrl, assetId]);
       res.status(201).json(ok({ id: r.rows[0].id, delivered: true }));
     } catch (e2) {
       console.error('[activities.letters]', e2);

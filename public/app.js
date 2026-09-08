@@ -3203,10 +3203,12 @@ var MySection = () => {
       fetch("/api/my/works").then(function (r) { return r.json(); }),
       fetch("/api/my/level").then(function (r) { return r.json(); }),
       fetch("/api/my/messages").then(function (r) { return r.json(); }),
-      fetch("/api/my/activity-records").then(function (r) { return r.json(); })
+      fetch("/api/my/activity-records").then(function (r) { return r.json(); }),
+      fetch("/api/assets?mine=1").then(function (r) { return r.json(); })
     ]).then(function (rs) {
       if (cancelled || !ref.current) return;
-      var prof = rs[0], reg = rs[1], wrk = rs[2], lvl = rs[3], msg = rs[4], rec = rs[5];
+      var prof = rs[0], reg = rs[1], wrk = rs[2], lvl = rs[3], msg = rs[4], rec = rs[5], ass = rs[6];
+      var myAssets = (ass && ass.ok && ass.data && ass.data.assets) || [];
       if (!prof.ok) {
         ref.current.innerHTML = "<div class='my-login'><div class='my-login-card'><h2>登录你的 AI 社团账户</h2><p>使用飞书账号登录后，即可查看和管理你的报名、作品与消息。</p><a class='my-login-btn' href='/login.html'>去登录</a></div></div>";
         return;
@@ -3260,6 +3262,129 @@ var MySection = () => {
           }).join("") + "</tbody></table>";
       }
       h += "</div>";
+      // ===== 我的资源（资产子系统）：本地上传 + 程序登记引导流 =====
+      var ASSET_CAT_LABEL = { program: "程序", skill: "Skill", media: "多媒体", doc: "文档" };
+      var ASSET_STATUS_LABEL = { pending: "待处理", reviewing: "审核中", online: "已上线", rejected: "被驳回" };
+      function assetSizeTxt(n) { n = +n || 0; return n > 1048576 ? (n / 1048576).toFixed(1) + "MB" : n > 1024 ? Math.round(n / 1024) + "KB" : n + "B"; }
+      function assetStatusTxt(x) {
+        if (!x) return "";
+        if (x.category === "program" && x.backend === "remote" && x.remote_status) {
+          return "<span class='my-status " + x.remote_status + "'>" + (ASSET_STATUS_LABEL[x.remote_status] || x.remote_status) + "</span>";
+        }
+        return x.backend === "remote" ? "外部" : (x.category === "program" ? "程序" : "已上传");
+      }
+      function assetsListHtml(list) {
+        if (!list || !list.length) return "<div class='my-empty'>暂无资源——本地上传或登记程序后会显示在这里</div>";
+        return "<table class='my-table'><thead><tr><th>名称</th><th>分类</th><th>状态</th><th>大小</th><th>操作</th></tr></thead><tbody>" +
+          list.map(function (x) {
+            var dl = (x.category === "program" && x.backend === "remote")
+              ? "<a class='my-tag' href='" + esc(x.storage_url || x.remote_url || "#") + "' target='_blank' rel='noopener'>查看 ↗</a>"
+              : "<a class='my-tag' href='#' onclick='event.preventDefault();window.myAssetDownload(\"" + encodeURIComponent(x.id) + "\");'>下载 ⤓</a>";
+            return "<tr><td>" + esc(x.name || x.id) + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
+              "<button class='my-tag my-tag-del' onclick='window.myAssetDelete(\"" + encodeURIComponent(x.id) + "\");'>删</button></td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      h += "<div class='my-sec'><div class='my-sechead'><span class='t'>我的资源</span><span class='e'>MY ASSETS</span>" +
+        "<span class='my-asset-actions'>" +
+        "<button class='my-tag' onclick='window.myOpenAssetsPanel(\"local\")'>📤 本地上传</button>" +
+        "<button class='my-tag my-tag-accent' onclick='window.myOpenAssetsPanel(\"program\")'>⚡ 上传程序</button>" +
+        "</span></div>" +
+        "<div id='my-assets-list'>" + assetsListHtml(myAssets) + "</div></div>";
+      window.myAssetsRefresh = function () {
+        fetch("/api/assets?mine=1").then(function (r) { return r.json(); }).then(function (j) {
+          var el = document.getElementById("my-assets-list");
+          if (el) el.innerHTML = assetsListHtml((j.ok && j.data && j.data.assets) || []);
+        }).catch(function () {});
+      };
+      window.myAssetDownload = function (id) {
+        var a = document.createElement("a");
+        a.href = "/api/assets/" + encodeURIComponent(id) + "/download";
+        a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+      };
+      window.myAssetDelete = function (id) {
+        if (!window.confirm("确定删除该资源？相关作品/帖子对该资源的引用会置空，且不可恢复。")) return;
+        fetch("/api/assets/" + encodeURIComponent(id), { method: "DELETE" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { if (j && j.ok) { window.myAssetsRefresh(); } else { window.alert((j && j.error && j.error.message) || "删除失败，请重试"); } })
+          .catch(function () { window.alert("删除失败，请重试"); });
+      };
+      window.myOpenAssetsPanel = function (mode) {
+        if (window.__assetPanel) return;
+        var isProg = mode === "program";
+        var ov = document.createElement("div");
+        ov.className = "my-overlay";
+        ov.id = "__assetPanel";
+        ov.innerHTML =
+          "<div class='my-overlay-card'>" +
+          "<div class='my-overlay-head'><b>" + (isProg ? "⚡ 上传 / 登记程序" : "📤 本地上传资源") + "</b><button class='my-overlay-x' onclick='window.myCloseAssetsPanel()'>✕</button></div>" +
+          (isProg
+            ? "<div class='my-overlay-body'>" +
+              "<label>程序名称<input id='ap-name' class='my-input' placeholder='例如：周报小结 Agent' maxlength='255'></label>" +
+              "<label>仓库地址（内网 gitlab）<input id='ap-repo' class='my-input' placeholder='http://gitlab.internal/group/repo'></label>" +
+              "<label>资源中心地址<textarea id='ap-remote' class='my-input' rows='2' placeholder='https://resource-center.example/items/42（提交后由 agent 回填）'></textarea></label>" +
+              "<div class='my-ap-prompt' id='ap-prompt'></div>" +
+              "<button class='my-tag' onclick='window.myAssetCopyPrompt()'>📋 复制提示词</button>" +
+              "<label>资源中心审核状态<select id='ap-status' class='my-input'><option value='pending'>待处理</option><option value='reviewing'>审核中</option><option value='online'>已上线</option><option value='rejected'>被驳回</option></select></label>" +
+              "<label>粘贴 agent 报告<textarea id='ap-report' class='my-input' rows='3' placeholder='把 agent 输出的格式化报告粘贴到这里（留存）'></textarea></label>" +
+              "<div class='my-overlay-btns'><button class='my-tag my-tag-accent' onclick='window.myAssetSubmit(\"program\")'>提交登记</button><button class='my-tag' onclick='window.myCloseAssetsPanel()'>取消</button></div>" +
+              "</div>"
+            : "<div class='my-overlay-body'>" +
+              "<input type='file' id='ap-file' class='my-file'>" +
+              "<div class='my-ap-hint'>支持程序包 / 源码包 / 文档 / 多媒体（zip .pdf .md .mp4 等，≤50MB），按类型自动归入四分类。</div>" +
+              "<div class='my-overlay-btns'><button class='my-tag my-tag-accent' onclick='window.myAssetSubmit(\"local\")'>上传</button><button class='my-tag' onclick='window.myCloseAssetsPanel()'>取消</button></div>" +
+              "</div>") +
+          "</div>";
+        document.body.appendChild(ov);
+        window.__assetPanel = ov;
+      };
+      window.myCloseAssetsPanel = function () {
+        var ov = document.getElementById("__assetPanel");
+        if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+        window.__assetPanel = null;
+      };
+      window.myAssetCopyPrompt = function () {
+        var name = (document.getElementById("ap-name") || {}).value || "";
+        var repo = (document.getElementById("ap-repo") || {}).value || "";
+        var txt = "请帮我把下面这个程序推送到内网 gitlab 并提交到飞书资源中心审核。\n" +
+          "程序名称：" + name + "\n" +
+          "gitlab 仓库（待推送后补）：" + repo + "\n" +
+          "流程：1) 登录授权；2) 推到内网 gitlab；3) 提交资源中心审核；4) 输出格式化报告（含资源中心 URL）。";
+        var ok = false;
+        try { navigator.clipboard.writeText(txt); ok = true; } catch (e) {}
+        if (!ok) {
+          var ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select();
+          try { ok = document.execCommand("copy"); } catch (e2) {}
+          document.body.removeChild(ta);
+        }
+        var el = document.getElementById("ap-prompt");
+        if (el) el.innerHTML = ok ? "<span class='my-ap-ok'>已复制提示词 → 交给 agent，完成授权/推送/审核后把报告和 URL 粘贴回来。</span>"
+                                  : "<span class='my-ap-err'>复制失败，请手动复制上一步内容。</span>";
+      };
+      window.myAssetSubmit = function (mode) {
+        var isProg = mode === "program";
+        var close = function () { window.myCloseAssetsPanel(); window.myAssetsRefresh(); };
+        if (isProg) {
+          var name = (document.getElementById("ap-name") || {}).value || "";
+          var repo = (document.getElementById("ap-repo") || {}).value || "";
+          var remote = (document.getElementById("ap-remote") || {}).value || "";
+          var status = (document.getElementById("ap-status") || {}).value || "pending";
+          var report = (document.getElementById("ap-report") || {}).value || "";
+          if (!name.trim()) { window.alert("请填写程序名称"); return; }
+          fetch("/api/assets", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: "program", backend: "remote", kind: "source", name: name, repo_url: repo, remote_url: remote, remote_status: status, agent_report: report, stage: "submitted" }) })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (j && j.ok) { close(); } else { window.alert((j && j.error && j.error.message) || "提交失败"); } })
+            .catch(function () { window.alert("提交失败"); });
+          return;
+        }
+        var fi = document.getElementById("ap-file"); var file = fi && fi.files && fi.files[0];
+        if (!file) { window.alert("请选择文件"); return; }
+        var fd = new FormData(); fd.append("file", file);
+        fetch("/api/assets/upload", { method: "POST", body: fd })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { if (j && j.ok) { close(); } else { window.alert((j && j.error && j.error.message) || "上传失败"); } })
+          .catch(function () { window.alert("上传失败"); });
+      };
       // ===== 活动记录（预约/报名/通知按活动归并；点击跳活动页并自动打开对应面板）=====
       var records = (rec && rec.ok && rec.data && rec.data.records) || [];
       h += "<div class='my-sec'><div class='my-sechead'><span class='t'>活动记录</span><span class='e'>MY ACTIVITY RECORDS · 同活动通知归并</span></div>";
@@ -3286,6 +3411,7 @@ var MySection = () => {
     return function () {
       cancelled = true;
       try { delete window.myOpenRecord; } catch (_) { window.myOpenRecord = undefined; }
+      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `
@@ -3308,6 +3434,27 @@ var MySection = () => {
     .my-task-pts{font-family:'JetBrains Mono',monospace;font-size:11px;color:#2568d8;letter-spacing:1px;}
     .my-ai{margin-left:auto;font-size:13px;letter-spacing:1px;color:#2568d8;border:1px solid rgba(37,104,216,0.4);padding:8px 18px;border-radius:999px;text-decoration:none;transition:all .2s;}
     .my-ai:hover{background:rgba(37,104,216,0.1);}
+    .my-asset-actions{margin-left:auto;display:flex;gap:10px;align-items:center;}
+    .my-tag{display:inline-block;font-size:12px;letter-spacing:1px;color:#2568d8;border:1px solid rgba(37,104,216,0.4);background:#fff;padding:6px 14px;border-radius:999px;margin:0 6px 0 0;text-decoration:none;cursor:pointer;transition:all .15s;}
+    .my-tag:hover{background:rgba(37,104,216,0.1);}
+    .my-tag-accent{color:#fff;background:linear-gradient(135deg,#2568d8,#173f8f);border-color:transparent;}
+    .my-tag-accent:hover{color:#fff;background:linear-gradient(135deg,#3b7ef0,#1d4a9e);}
+    .my-tag-del{color:#e5484d;border-color:rgba(229,72,77,0.4);}
+    .my-tag-del:hover{background:rgba(229,72,77,0.08);}
+    .my-overlay{position:fixed;inset:0;background:rgba(20,20,30,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:24px;}
+    .my-overlay-card{background:#fff;color:#1a1a1f;border-radius:14px;width:min(560px,94vw);max-height:88vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,0.28);}
+    .my-overlay-head{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid rgba(0,0,0,0.06);font-family:'Noto Serif SC',serif;font-size:18px;}
+    .my-overlay-x{border:none;background:transparent;font-size:20px;cursor:pointer;color:#999;}
+    .my-overlay-body{padding:22px 24px;display:flex;flex-direction:column;gap:14px;}
+    .my-overlay-body label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#555;}
+    .my-input{width:100%;box-sizing:border-box;border:1px solid rgba(0,0,0,0.12);border-radius:8px;padding:10px 12px;font-size:14px;background:#fff;color:#1a1a1f;}
+    .my-input:focus{outline:none;border-color:#2568d8;}
+    .my-file{border:1px dashed rgba(0,0,0,0.2);border-radius:10px;padding:26px;text-align:center;color:#999;font-size:13px;background:#fafafa;}
+    .my-ap-hint{font-size:12px;color:#999;line-height:1.7;}
+    .my-ap-prompt{font-size:12px;line-height:1.6;min-height:18px;}
+    .my-ap-ok{color:#2a9d63;}
+    .my-ap-err{color:#e5484d;}
+    .my-overlay-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:6px;}
     .my-msg-card{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:14px 20px;margin-bottom:26px;cursor:pointer;transition:all .25s;}
     .my-msg-card:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,0.06);}
     .my-msg-icon{font-size:22px;}
@@ -3834,6 +3981,7 @@ var CommunitySection = () => {
           "<div class='com-compose-tools'>" +
           "<button class='com-tool' onclick=\"document.getElementById('com-img-input').click()\">📷 图片</button>" +
           "<button class='com-tool' onclick=\"document.getElementById('com-file-input').click()\">📎 附件</button>" +
+          "<button class='com-tool' onclick='window.comPickMyAssets&&window.comPickMyAssets()'>🗂 我的资源</button>" +
           "<input type='file' id='com-img-input' accept='image/*' multiple style='display:none' onchange='window.comStageImg&&window.comStageImg(this)'>" +
           "<input type='file' id='com-file-input' multiple style='display:none' onchange='window.comStageFile&&window.comStageFile(this)'>" +
           "</div>" +
@@ -4085,12 +4233,55 @@ var CommunitySection = () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
     function uploadOne(f) {
+      // 已登记为「我的资源」的项：后端已落盘并登记 assets，无需再上传，直接返回下载入口
+      if (f && f.assetUrl) return Promise.resolve({ url: f.assetUrl, name: f.name, size: f.size });
       var fd = new FormData();
       fd.append("file", f.file);
       return fetch("/api/community/upload", { method: "POST", body: fd })
         .then(function (r) { if (!r.ok) throw 0; return r.json(); })
         .then(function (j) { if (!j || !j.ok || !j.data || !j.data.url) throw 0; return j.data; });
     }
+    var ASSET_CAT_LABEL_C = { program: "程序", skill: "Skill", media: "多媒体", doc: "文档" };
+    window.comPickMyAssets = function () {
+      if (window.__assetPickPanel) return;
+      fetch("/api/assets?mine=1").then(function (r) { return r.json(); }).then(function (j) {
+        var list = (j.ok && j.data && j.data.assets) || [];
+        var ov = document.createElement("div");
+        ov.className = "com-assetpanel";
+        ov.id = "__assetPickPanel";
+        var rows = list.map(function (x) {
+          var checked = stageFiles.some(function (f) { return f.assetId === x.id; });
+          return "<label class='com-asset-row'><input type='checkbox' data-id='" + encodeURIComponent(x.id) + "' data-name='" + esc(x.name || x.id) + "' data-url='/api/assets/" + encodeURIComponent(x.id) + "/download' data-size='" + (+x.size || 0) + "'" + (checked ? " checked" : "") + ">" +
+            "<span>" + esc(x.name || x.id) + "</span><i>" + esc(ASSET_CAT_LABEL_C[x.category] || x.category || "") + (x.size ? " · " + fmtSize(x.size) : "") + "</i></label>";
+        }).join("");
+        ov.innerHTML =
+          "<div class='com-assetpanel-card'>" +
+          "<div class='com-assetpanel-head'><b>🗂 从我的资源选择</b><button class='com-assetpanel-x' onclick='window.comCloseAssetPick()'>✕</button></div>" +
+          "<div class='com-assetpanel-body'>" + (rows || "<div class='com-empty'>你还没有资源——去「个人中心 → 我的资源」上传或登记程序。</div>") + "</div>" +
+          "<div class='com-assetpanel-foot'><button class='com-tool' onclick='window.comApplyAssetPick()'>加入帖子</button></div>" +
+          "</div>";
+        document.body.appendChild(ov);
+        window.__assetPickPanel = ov;
+      }).catch(function () { window.alert("加载我的资源失败"); });
+    };
+    window.comCloseAssetPick = function () {
+      var o = document.getElementById("__assetPickPanel");
+      if (o && o.parentNode) o.parentNode.removeChild(o);
+      window.__assetPickPanel = null;
+    };
+    window.comApplyAssetPick = function () {
+      var boxes = document.querySelectorAll("#__assetPickPanel input[data-id]");
+      var chosen = [];
+      boxes.forEach(function (b) { if (b.checked) chosen.push({ id: b.getAttribute("data-id"), name: b.getAttribute("data-name"), url: b.getAttribute("data-url"), size: +b.getAttribute("data-size") || 0 }); });
+      // 先移除旧的同 id 项，再追加本次勾选（幂等不重复）
+      for (var i = stageFiles.length - 1; i >= 0; i--) {
+        var ai = stageFiles[i].assetId;
+        if (ai && chosen.some(function (c) { return c.id === ai; })) stageFiles.splice(i, 1);
+      }
+      chosen.forEach(function (c) { stageFiles.push({ name: c.name, url: c.url, size: c.size, assetId: c.id, assetUrl: c.url }); });
+      renderStage();
+      window.comCloseAssetPick();
+    };
     window.comSubmitPublish = function () {
       var input = document.getElementById("com-pub-input");
       var hint = document.getElementById("com-pub-hint");
@@ -4458,6 +4649,16 @@ var CommunitySection = () => {
     .com-stage-x{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;line-height:1;cursor:pointer;padding:0;}
     .com-stage-file{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#1f2933;background:#f2f4f6;border-radius:6px;padding:5px 8px;position:relative;}
     .com-stage-file .com-stage-x{position:static;background:#d0d5db;color:#0f1419;}
+    .com-assetpanel{position:fixed;inset:0;background:rgba(20,20,30,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:24px;}
+    .com-assetpanel-card{background:#fff;color:#1f2933;border-radius:14px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,0.28);}
+    .com-assetpanel-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e4e7eb;font-size:15px;}
+    .com-assetpanel-x{border:none;background:transparent;font-size:20px;cursor:pointer;color:#9aa3af;}
+    .com-assetpanel-body{padding:14px 20px;overflow:auto;display:flex;flex-direction:column;gap:6px;}
+    .com-asset-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e4e7eb;border-radius:8px;cursor:pointer;}
+    .com-asset-row:hover{background:#f7f9fb;}
+    .com-asset-row span{flex:1;font-size:13px;color:#1f2933;}
+    .com-asset-row i{font-size:11px;color:#8b95a1;font-style:normal;}
+    .com-assetpanel-foot{padding:14px 20px;border-top:1px solid #e4e7eb;text-align:right;}
     .com-imgs{display:grid;gap:6px;margin-top:8px;}
     .com-imgs-1{grid-template-columns:1fr;max-width:520px;}
     .com-imgs-2{grid-template-columns:1fr 1fr;}

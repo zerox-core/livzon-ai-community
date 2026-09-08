@@ -21,6 +21,28 @@ const ASSET_EXT = new Set([
 
 const ASSET_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'assets');
 
+// —— 分类推断：消费方未显式传 category 时，按 kind / 扩展名映射到四分类 ——
+const EXT_TO_CATEGORY = {
+  // 媒体：图片 / 音视频
+  png: 'media', jpg: 'media', jpeg: 'media', gif: 'media', webp: 'media',
+  mp4: 'media', mov: 'media', webm: 'media', mp3: 'media', wav: 'media',
+  // 文档
+  pdf: 'doc', docx: 'doc', xlsx: 'doc', pptx: 'doc', txt: 'doc', md: 'doc', csv: 'doc',
+  // 程序：源码 / 数据 / 压缩包
+  js: 'program', ts: 'program', py: 'program', json: 'program', html: 'program',
+  zip: 'program', tar: 'program', gz: 'program', tgz: 'program', rar: 'program', '7z': 'program',
+};
+function categoryForExt(ext) {
+  return EXT_TO_CATEGORY[String(ext || '').toLowerCase().replace(/^\./, '')] || 'doc';
+}
+function categoryForKind(kind) {
+  const k = String(kind || '').toLowerCase();
+  if (k === 'video') return 'media';
+  if (k === 'skill') return 'skill';
+  if (k === 'miniprogram' || k === 'mcp' || k === 'source') return 'program';
+  return ''; // file 等交给扩展名推断
+}
+
 function fail(status, message) {
   const e = new Error(message);
   e.status = status;
@@ -33,10 +55,12 @@ function saveUploadedFile(buffer, { category = '', kind = '', origname = '' } = 
   const orig = utf8Field(String(origname || '')).slice(0, 255);
   const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
   if (!ASSET_EXT.has(ext)) throw fail(400, `不支持的文件类型：${ext || '未知'}`);
+  // 未显式指定分类 → 按扩展名自动推断（消费方竖线免传 category 即可正确分桶）
+  const cat = (category && ASSET_CATEGORIES.includes(category)) ? category : categoryForExt(ext);
   if (category && !ASSET_CATEGORIES.includes(category)) throw fail(400, `不支持的分类：${category}`);
   if (!buffer || !buffer.length) throw fail(400, '文件内容为空');
 
-  const subdir = category ? category : '';
+  const subdir = cat;
   const dir = subdir ? path.join(ASSET_DIR, subdir) : ASSET_DIR;
   try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
 
@@ -47,7 +71,7 @@ function saveUploadedFile(buffer, { category = '', kind = '', origname = '' } = 
     url: '/uploads/assets/' + (subdir ? subdir + '/' : '') + fname,
     name: orig,
     size: buffer.length,
-    category,
+    category: cat,
     kind,
   };
 }
@@ -119,4 +143,25 @@ async function bumpDownloads(id) {
   return (r.rows[0] && r.rows[0].downloads) || 0;
 }
 
-module.exports = { ASSET_CATEGORIES, ASSET_EXT, saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads };
+// 删除一条资产记录（业务表引用走 ON DELETE SET NULL 自动置空）
+async function deleteAsset(id) {
+  await query('DELETE FROM assets WHERE id=$1', [id]);
+}
+
+// 清理本地文件（仅限确在 /uploads/assets/ 内的随机名文件；外链/占位不动）
+function removeLocalFile(storageUrl) {
+  const url = String(storageUrl || '');
+  if (!url.startsWith('/uploads/assets/')) return;
+  const rel = url.replace(/^\/uploads\/assets\//, '');
+  const fp = path.join(ASSET_DIR, rel);
+  if (fp.startsWith(path.normalize(ASSET_DIR + path.sep)) && fs.existsSync(fp)) {
+    try { fs.unlinkSync(fp); } catch (_) {}
+  }
+}
+
+module.exports = {
+  ASSET_CATEGORIES, ASSET_EXT,
+  saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads,
+  deleteAsset, removeLocalFile,
+  categoryForExt, categoryForKind,
+};

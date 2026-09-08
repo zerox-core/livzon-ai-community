@@ -8,7 +8,8 @@ const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { genId, utf8Field } = require('../lib/community-core');
+const { utf8Field } = require('../lib/community-core');
+const { saveUploadedFile, createAsset, categoryForKind, categoryForExt } = require('../lib/asset-store');
 
 const router = express.Router();
 
@@ -64,15 +65,28 @@ router.post('/upload', authRequired, (req, res) => {
       if (!isAdmin && w.rows[0].user_id !== req.session.userId) {
         return res.status(403).json(err(ErrorCodes.PERMISSION, '只能为你自己的作品上传资源'));
       }
-      const fname = genId('art') + '.' + ext; // 随机名防路径穿越/防信任原始名
-      try { fs.mkdirSync(ARTIFACT_DIR, { recursive: true }); } catch (_) {}
-      await fs.promises.writeFile(path.join(ARTIFACT_DIR, fname), f.buffer);
+      // 走资产子系统：统一落盘 public/uploads/assets/<cat>/ + 登记 assets 行
+      const category = categoryForKind(casted.kind) || categoryForExt(ext);
+      const saved = saveUploadedFile(f.buffer, {
+        category, kind: casted.kind, origname: orig,
+      });
+      const asset = await createAsset({
+        user_id: req.session.userId,
+        category: saved.category,
+        backend: 'local',
+        kind: casted.kind,
+        name: saved.name,
+        size: f.size,
+        storage_url: saved.url,
+        checksum: '',
+        guide: utf8Field(casted.guide) || '',
+      });
       const r = await query(
-        `INSERT INTO artifacts (work_id, kind, filename, version, size, storage_url, checksum, guide)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         RETURNING id, work_id, kind, filename, version, size, storage_url, checksum, guide, downloads, created_at`,
-        [casted.workId, casted.kind, orig, utf8Field(casted.version) || 'v1', f.size, '/uploads/artifacts/' + fname, '', utf8Field(casted.guide) || '']);
-      res.status(201).json(ok(r.rows[0]));
+        `INSERT INTO artifacts (work_id, kind, filename, version, size, storage_url, checksum, guide, asset_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING id, work_id, kind, filename, version, size, storage_url, checksum, guide, downloads, asset_id, created_at`,
+        [casted.workId, casted.kind, saved.name, utf8Field(casted.version) || 'v1', f.size, saved.url, '', utf8Field(casted.guide) || '', asset.id]);
+      res.status(201).json(ok(Object.assign(r.rows[0], { asset: { id: asset.id, category: asset.category, backend: asset.backend } })));
     } catch (e2) {
       console.error('[artifact.upload]', e2);
       res.status(500).json(err(ErrorCodes.INTERNAL, '文件写入失败'));
