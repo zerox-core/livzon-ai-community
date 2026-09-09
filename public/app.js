@@ -867,7 +867,7 @@ var AdminPage = () => {
       };
     }
     // ===== 报名表单构建器（双栏：左编辑 + 右实时预览）=====
-    var formState = { activityId: '', profile: null };
+    var formState = { activityId: '', profile: null, activityName: '', mode: 'edit', savedAt: '', savedMap: {} };
     var AF_TYPES = ['text', 'textarea', 'select', 'radio', 'checkbox', 'number', 'date'];
     var AF_TYPE_LB = { text: '文本', textarea: '多行文本', select: '下拉单选', radio: '单选', checkbox: '多选', number: '数字', date: '日期' };
     var afSeq = 0;
@@ -936,7 +936,18 @@ var AdminPage = () => {
     function renderFormEditor(p) {
       p = p || afDefault();
       var el = document.getElementById('adm-form-editor'); if (!el) return;
+      var modeTxt = '';
+      if (formState.activityId) {
+        var mname = formState.activityName || formState.activityId;
+        if (formState.savedAt) {
+          var mdt = String(formState.savedAt).slice(0, 16).replace('T', ' ');
+          modeTxt = mname + ' · ' + (formState.mode === 'new' ? '新建表单（该活动已有模板，保存将覆盖）' : '编辑已创建模板（保存于 ' + mdt + '）');
+        } else {
+          modeTxt = mname + ' · 新建表单（尚未保存，保存后站点自动生效）';
+        }
+      }
       el.innerHTML =
+        (modeTxt ? "<div class='af-modebar' style='display:flex;align-items:center;gap:8px;font-size:12px;color:#256029;background:#f0f7ef;border:1px solid #d6e8d4;border-radius:8px;padding:8px 14px;margin:14px 0 0'><span style='width:7px;height:7px;border-radius:50%;background:#2e7d32;flex:none'></span>" + esc(modeTxt) + "</div>" : "") +
         "<div class='af-grid'>" +
           "<div class='af-main'>" +
             "<div class='af-card'>" +
@@ -980,27 +991,69 @@ var AdminPage = () => {
       if (el.dataset.wrapped) return; el.dataset.wrapped = '1';
       el.innerHTML = "<div class='af-pick-card'>" +
           "<div class='af-pick-ico'>📝</div>" +
-          "<div class='af-pick-b'><div class='af-pick-t'>选择要配置的正式活动</div><div class='af-pick-d'>报名表单模板按活动独立保存，保存后站点自动生效。</div></div>" +
+          "<div class='af-pick-b'><div class='af-pick-t'>选择要配置的正式活动</div><div class='af-pick-d'>报名表单模板按活动独立保存；已创建的活动可编辑模板，未创建的可新建表单。</div></div>" +
           "<select id='af-select'></select>" +
-          "<button class='adm-btn primary' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>加载模板</button>" +
+          "<button class='adm-btn primary' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>编辑模板</button>" +
+          "<button class='adm-btn' onclick='window.myAdminFormNew&&window.myAdminFormNew()'>＋ 新建表单</button>" +
         "</div>" +
         "<div id='adm-form-editor'><div class='adm-loading'>请选择活动后加载</div></div>";
-      fetch('/api/activities').then(function (r) { return r.json(); }).then(function (j) {
+      Promise.all([
+        fetch('/api/activities').then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
+        fetch('/api/admin/activities/signup-forms').then(function (r) { return r.json(); }).catch(function () { return { ok: false }; })
+      ]).then(function (rs) {
+        var j = rs[0] || {}, js = rs[1] || {};
         if (!j.ok || !j.data) return;
         var sel = document.getElementById('af-select'); if (!sel) return;
+        var savedMap = {};
+        if (js.ok && js.data && js.data.forms) {
+          (js.data.forms || []).forEach(function (f) { if (f && f.activityId) savedMap[String(f.activityId)] = f.updatedAt || ''; });
+        }
+        formState.savedMap = savedMap;
         var all = (j.data.current || []).concat(j.data.upcoming || []);
-        sel.innerHTML = "<option value=''>— 选择活动 —</option>" + all.map(function (a) { return "<option value='" + esc(a.id) + "'>" + esc(a.name) + "</option>"; }).join('');
+        sel.innerHTML = "<option value=''>— 选择活动 —</option>" + all.map(function (a) {
+          return "<option value='" + esc(a.id) + "'>" + esc(a.name) + (savedMap[String(a.id)] ? "（已创建 · 可编辑）" : "（未创建）") + "</option>";
+        }).join('');
         sel.onchange = function () { window.myAdminFormLoad(sel.value); };
       }).catch(function () {});
+    }
+    function afPickName(id) {
+      var sel = document.getElementById('af-select');
+      if (!sel || !id) return '';
+      for (var i = 0; i < sel.options.length; i++) {
+        if (String(sel.options[i].value) === String(id)) return String(sel.options[i].textContent || '').replace(/（[^）]*）/g, '').trim();
+      }
+      return '';
+    }
+    function afSyncOptionTag(id) {
+      var sel = document.getElementById('af-select');
+      if (!sel || !id) return;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (String(sel.options[i].value) === String(id)) {
+          sel.options[i].textContent = String(sel.options[i].textContent || '').replace(/（[^）]*）/g, '').trim() + '（已创建 · 可编辑）';
+        }
+      }
     }
     function loadFormEditor() {
       var sel = document.getElementById('af-select'); if (!sel) return;
       var id = sel.value; if (!id) return;
       formState.activityId = id;
+      formState.activityName = afPickName(id);
+      formState.savedAt = (formState.savedMap && formState.savedMap[String(id)]) || '';
+      formState.mode = formState.savedAt ? 'edit' : 'new';
       fetch('/api/activities/' + encodeURIComponent(id) + '/signup-form').then(function (r) { return r.json(); }).then(function (j) {
         renderFormEditor((j.ok && j.data) || afDefault());
       }).catch(function () { renderFormEditor(afDefault()); });
     }
+    window.myAdminFormNew = function () {
+      var sel = document.getElementById('af-select');
+      var id = sel ? sel.value : '';
+      if (!id) { window.alert('请先在上方选择要新建表单的活动'); return; }
+      formState.activityId = id;
+      formState.activityName = afPickName(id);
+      formState.savedAt = (formState.savedMap && formState.savedMap[String(id)]) || '';
+      formState.mode = 'new';
+      renderFormEditor(afDefault());
+    };
     function afCollect() {
       var ed = document.getElementById('adm-form-editor'); if (!ed) return null;
       var list = document.getElementById('af-list'); if (!list) return null;
@@ -1064,6 +1117,15 @@ var AdminPage = () => {
         .then(function (r) { return r.json(); }).then(function (j) {
           msg.className = 'af-msg' + (j.ok ? '' : ' err');
           msg.textContent = j.ok ? '✓ 已保存（站点自动生效）' : ('保存失败：' + ((j.error && j.error.message) || '未知错误'));
+          if (j.ok) {
+            formState.mode = 'edit';
+            formState.savedAt = new Date().toISOString();
+            if (!formState.savedMap) formState.savedMap = {};
+            formState.savedMap[String(id)] = formState.savedAt;
+            afSyncOptionTag(id);
+            var mb = document.querySelector('#adm-form-editor .af-modebar');
+            if (mb) mb.innerHTML = "<span style='width:7px;height:7px;border-radius:50%;background:#2e7d32;flex:none'></span>" + esc((formState.activityName || id) + ' · 编辑已创建模板（保存于 ' + String(formState.savedAt).slice(0, 16).replace('T', ' ') + '）');
+          }
         }).catch(function () { msg.textContent = '保存失败：网络异常'; msg.className = 'af-msg err'; });
     };
     window.myAdminFmt = function (cmd) {
@@ -1099,7 +1161,7 @@ var AdminPage = () => {
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
@@ -1326,17 +1388,25 @@ var SignupPage = () => {
       else inp = "<input id='" + id + "' type='text' maxlength='500' placeholder='" + esc(f.placeholder || "") + "'>";
       return "<div class='sig-field'><label>" + esc(sigSafeLabel(f, fi)) + req + "</label>" + inp + "</div>";
     };
+    // 报名页 5 接口统一 12s 超时（AbortController），接口僵死时不再永久卡在骨架屏
+    const fetchJsonTO = function (u) {
+      var ac = (typeof AbortController !== "undefined") ? new AbortController() : null;
+      var tid = ac ? setTimeout(function () { try { ac.abort(); } catch (_) {} }, 12000) : 0;
+      var p = fetch(u, ac ? { signal: ac.signal } : undefined).then(function (r) { return r.json(); });
+      if (tid && p.finally) p = p.finally(function () { clearTimeout(tid); });
+      return p.catch(function () { return { ok: false, timeout: true }; });
+    };
     Promise.all([
-      fetch("/api/activities/" + encodeURIComponent(activityId)).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
-      fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup-form").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
-      fetch("/api/auth/me").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
-      fetch("/api/my/profile").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
-      fetch("/api/assets?mine=1&limit=100").then(function (r) { return r.json(); }).catch(function () { return { ok: false }; })
+      fetchJsonTO("/api/activities/" + encodeURIComponent(activityId)),
+      fetchJsonTO("/api/activities/" + encodeURIComponent(activityId) + "/signup-form"),
+      fetchJsonTO("/api/auth/me"),
+      fetchJsonTO("/api/my/profile"),
+      fetchJsonTO("/api/assets?mine=1&limit=100")
     ]).then(function (rs) {
       if (cancelled || !ref.current) return;
       var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3], ass = rs[4];
       var profile = (pf.ok && pf.data) || {};
-      if (!activityId || !act.ok) { ref.current.innerHTML = "<div class='my-empty'>活动不存在或已下线</div>"; return; }
+      if (!activityId || !act.ok) { ref.current.innerHTML = "<div class='my-empty'>活动加载失败或已下线，请刷新重试；若持续出现请检查网络后重新进入</div>"; return; }
       var a = act.data;
       var isAuth = me && me.authenticated;
       var uname = (prof.ok && prof.data && prof.data.name) || "";
@@ -3755,7 +3825,8 @@ var MySection = () => {
             var dl = (x.category === "program" && x.backend === "remote")
               ? "<a class='my-tag' href='" + esc(x.storage_url || x.remote_url || "#") + "' target='_blank' rel='noopener'>查看 ↗</a>"
               : "<a class='my-tag' href='#' onclick='event.preventDefault();window.myAssetDownload(\"" + encodeURIComponent(x.id) + "\");'>下载 ⤓</a>";
-            return "<tr><td>" + esc(x.name || x.id) + (String(x.source || "").indexOf("signup:") === 0 ? " <span style='font-size:10px;color:#8a6d1a;background:#fdf6e0;border-radius:4px;padding:1px 6px;vertical-align:1px;white-space:nowrap'>报名作品</span>" : "") + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
+            var gsub = String(x.guide || '').replace(/\s+/g, ' ').trim();
+            return "<tr><td>" + esc(x.name || x.id) + (String(x.source || "").indexOf("signup:") === 0 ? " <span style='font-size:10px;color:#8a6d1a;background:#fdf6e0;border-radius:4px;padding:1px 6px;vertical-align:1px;white-space:nowrap'>报名作品</span>" : "") + (gsub ? "<div style='font-size:11px;color:#8a8f98;margin-top:3px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + esc(gsub.slice(0, 60)) + (gsub.length > 60 ? "…" : "") + "</div>" : "") + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
               "<button class='my-tag my-tag-del' onclick='window.myAssetDelete(\"" + encodeURIComponent(x.id) + "\");'>删</button></td></tr>";
           }).join("") + "</tbody></table>";
       }
@@ -3880,11 +3951,13 @@ var MySection = () => {
           "<div class='my-overlay-head'><b>" + (isProg ? "⚡ 上传 / 登记程序" : "📤 本地上传资源") + "</b><button class='my-overlay-x' onclick='window.myCloseAssetsPanel()'>✕</button></div>" +
           (isProg
             ? "<div class='my-overlay-body'>" +
-              "<label>程序名称<input id='ap-name' class='my-input' placeholder='例如：周报小结 Agent' maxlength='255'></label>" +
+              "<label>程序名称（可自定义，展示名称以此为准）<input id='ap-name' class='my-input' placeholder='例如：周报小结 Agent' maxlength='255'></label>" +
+              "<label>程序介绍（拉取 README 后自动识别，可修改）<textarea id='ap-intro' class='my-input' rows='3' maxlength='4000' placeholder='填写或从 GitHub README 自动识别简介'></textarea></label>" +
               "<label>仓库地址（内网 gitlab 或 github.com 公开仓库）<input id='ap-repo' class='my-input' placeholder='http://gitlab.internal/group/repo 或 https://github.com/owner/repo'></label>" +
               "<div id='ap-gh-box' style='display:none;margin:0 0 10px'>" +
                 "<button type='button' class='my-tag' id='ap-gh-fetch' style='margin-bottom:6px'>📖 拉取 GitHub README</button>" +
                 "<div id='ap-gh-view' style='display:none;max-height:180px;overflow:auto;white-space:pre-wrap;font-family:monospace;font-size:11px;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px 10px'></div>" +
+                "<div id='ap-gh-hint' style='display:none;font-size:11px;color:#2e7d32;margin:6px 0 0'></div>" +
               "</div>" +
               "<label>资源中心地址<textarea id='ap-remote' class='my-input' rows='2' placeholder='https://resource-center.example/items/42（提交后由 agent 回填）'></textarea></label>" +
               "<div class='my-ap-prompt' id='ap-prompt'></div>" +
@@ -3943,6 +4016,30 @@ var MySection = () => {
               if (!j.ok) { window.alert((j.error && j.error.message) || 'README 拉取失败'); return; }
               window.__ghReadme = { readme: String(j.data.readme || ''), repo: j.data.repo, path: j.data.path, fetchedAt: j.data.fetchedAt };
               if (ghView) { ghView.style.display = ''; ghView.textContent = window.__ghReadme.readme.slice(0, 4000) + (window.__ghReadme.readme.length > 4000 ? '\n…（预览截断，完整内容已留存）' : ''); }
+              // README 智能识别：首个 # 标题→程序名称；首个干净段落→介绍（仅当对应输入为空时填充，之后可自定义覆盖）
+              var md = window.__ghReadme.readme || '';
+              var nmAuto = '';
+              var mh = md.match(/^\s*#\s+(.+?)\s*$/m);
+              if (mh) nmAuto = String(mh[1]).replace(/[`*_>#\[\]]/g, '').trim();
+              if (!nmAuto && window.__ghReadme.repo) { var rp = String(window.__ghReadme.repo).split('/'); nmAuto = rp[rp.length - 1] || ''; }
+              var introAuto = '';
+              var mlines = md.split(/\r?\n/);
+              for (var mi = 0; mi < mlines.length; mi++) {
+                var mln = mlines[mi].trim();
+                if (!mln) continue;
+                if (/^(#|>|[-*+]\s|\||!\[|```|<|\[!)/.test(mln)) continue;
+                if (mln.indexOf('](') > -1) continue;
+                if (mln.length < 8) continue;
+                introAuto = mln; break;
+              }
+              var nmEl = document.getElementById('ap-name'), inEl = document.getElementById('ap-intro');
+              if (nmEl && !nmEl.value.trim() && nmAuto) nmEl.value = nmAuto.slice(0, 255);
+              if (inEl && !inEl.value.trim() && introAuto) inEl.value = introAuto.slice(0, 2000);
+              var ghHint = document.getElementById('ap-gh-hint');
+              if (ghHint) {
+                ghHint.style.display = '';
+                ghHint.textContent = '✓ 已识别：名称「' + (nmAuto || '—') + '」' + (introAuto ? '、程序介绍已自动填写' : '') + '；两者均可自行修改，提交后按你填写的内容展示。';
+              }
             })
             .catch(function () { ghBtn.textContent = '📖 拉取 GitHub README'; window.alert('README 拉取失败（网络异常）'); });
         });
@@ -3979,13 +4076,14 @@ var MySection = () => {
           var remote = (document.getElementById("ap-remote") || {}).value || "";
           var status = (document.getElementById("ap-status") || {}).value || "pending";
           var report = (document.getElementById("ap-report") || {}).value || "";
+          var intro = ((document.getElementById("ap-intro") || {}).value || "").trim();
           if (!name.trim()) { window.alert("请填写程序名称"); return; }
           // GitHub 公开仓库：登记时把服务端拉取的 README 追加进 agent 报告留存（可追溯）
           if (window.__ghReadme && /github\.com\//i.test(repo)) {
             report = (report ? report + "\n\n" : "") + "—— GitHub README（" + window.__ghReadme.repo + " · " + window.__ghReadme.path + " · 拉取于 " + window.__ghReadme.fetchedAt + "）——\n" + window.__ghReadme.readme;
           }
           fetch("/api/assets", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ category: "program", backend: "remote", kind: "source", name: name, repo_url: repo, remote_url: remote, remote_status: status, agent_report: report, stage: "submitted" }) })
+            body: JSON.stringify({ category: "program", backend: "remote", kind: "source", name: name, guide: intro, repo_url: repo, remote_url: remote, remote_status: status, agent_report: report, stage: "submitted" }) })
             .then(function (r) { return r.json(); })
             .then(function (j) { if (j && j.ok) { close(); } else { window.alert((j && j.error && j.error.message) || "提交失败"); } })
             .catch(function () { window.alert("提交失败"); });
@@ -6575,7 +6673,7 @@ var App = () => {
   React.useEffect(() => {
     const onHash = () => {
       const h = String(window.location.hash || "").replace(/^#/, "").split("?")[0];
-      if (HASH_PAGES[h]) setPage(h);
+      if (HASH_PAGES[h]) { setPage(h); try { window.scrollTo(0, 0); } catch (_) {} }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);

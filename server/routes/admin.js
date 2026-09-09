@@ -161,6 +161,17 @@ router.get('/activities/signups', adminRequired, async (req, res) => {
   }
 });
 
+// GET /api/admin/activities/signup-forms —— 已创建的报名模板清单（编辑/新建入口标记用）
+router.get('/activities/signup-forms', adminRequired, async (req, res) => {
+  try {
+    const rows = await query('SELECT activity_id, updated_at FROM activity_signup_forms ORDER BY updated_at DESC', []);
+    res.json(ok({ forms: (rows || []).map(r => ({ activityId: r.activity_id, updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null })) }));
+  } catch (e) {
+    console.error('[admin.signup-forms.list]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
 // PUT /api/admin/activities/:id/signup-form —— 保存报名模板（模块化 profile，服务端净化）
 router.put('/activities/:id/signup-form', adminRequired, async (req, res) => {
   const id = String(req.params.id || '').slice(0, 64);
