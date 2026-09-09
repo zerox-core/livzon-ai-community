@@ -37,10 +37,9 @@ function startServer(args) {
 
   if (!existsSync(join(__dirname, 'server', 'node_modules'))) {
     console.log('[start] 检测到 node_modules 缺失，开始安装依赖...');
-    const npm = spawn('npm.cmd', ['install', '--no-audit', '--no-fund', '--loglevel=error'], {
+    const npm = spawnNpm(['install', '--no-audit', '--no-fund', '--loglevel=error'], {
       cwd: join(__dirname, 'server'),
       stdio: 'inherit',
-      shell: true,
     });
     npm.on('exit', (code) => {
       if (code !== 0) {
@@ -48,10 +47,10 @@ function startServer(args) {
         process.exit(1);
       }
       console.log('[start] 依赖安装完成');
-      launchServer(port);
+      runPreLaunchChecks(port, () => launchServer(port));
     });
   } else {
-    launchServer(port);
+    runPreLaunchChecks(port, () => launchServer(port));
   }
 }
 
@@ -143,6 +142,71 @@ function showStatus() {
   } catch {
     console.log(`PID 文件存在但进程已退出（PID=${pid}）`);
   }
+}
+
+function spawnNpm(args, opts) {
+  // 优先用 node 自带的 npm-cli.js（不依赖 PATH/npm.cmd，跨环境更稳）
+  const candidates = [
+    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(__dirname, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  for (const script of candidates) {
+    if (existsSync(script)) {
+      return spawn(process.execPath, [script, ...args], { ...opts, shell: false });
+    }
+  }
+  // 兜底：依赖 npm.cmd（开发机 PATH 已配）
+  console.warn('[start] 未找到内置 npm-cli.js，回退 npm.cmd（shell=true）');
+  return spawn('npm.cmd', args, { ...opts, shell: true });
+}
+
+function runPreLaunchChecks(port, next) {
+  checkPort(port, (status) => {
+    if (status === 'same') {
+      console.log(`[start] 端口 ${port} 已是本服务，复用即可`);
+      return checkHealth(port, (ok, info) => {
+        if (ok) console.log(`[start] ✓ 服务运行中（端口 ${port}）`);
+        else console.error('[start] 端口被占但 /api/info 异常，请人工排查');
+      });
+    }
+    if (status === 'foreign') {
+      console.error(`[start] ✗ 端口 ${port} 被其他进程占用。请用 --port 指定新端口，或先停掉占用者。`);
+      process.exit(1);
+    }
+    // status === 'free' -> 等 PG 就绪
+    ensurePostgres(() => next());
+  });
+}
+
+function checkPort(port, cb) {
+  const req = http.get({ host: '127.0.0.1', port, path: '/api/info', timeout: 1500 }, (resp) => {
+    let body = '';
+    resp.on('data', (c) => body += c);
+    resp.on('end', () => {
+      try {
+        const info = JSON.parse(body);
+        // 与本服务 /api/info 响应一致：{ips: [...]} 即视为本服务
+        if (info && Array.isArray(info.ips)) cb('same');
+        else cb('foreign');
+      } catch (_) { cb('foreign'); }
+    });
+  });
+  req.on('error', (e) => {
+    if (e.code === 'ECONNREFUSED') cb('free');
+    else cb('foreign');
+  });
+}
+
+function ensurePostgres(cb) {
+  console.log('[start] 等待 PG 就绪（pg-keeper.mjs wait --timeout 30）...');
+  const child = spawn(process.execPath, [join(__dirname, 'pg-keeper.mjs'), 'wait', '--timeout', '30'], { stdio: 'inherit' });
+  child.on('exit', (code) => {
+    if (code !== 0) {
+      console.error('[start] ✗ PG 未就绪。请先执行: node pg-keeper.mjs ensure（只启动一次，其他服务只做等待）');
+      process.exit(1);
+    }
+    cb();
+  });
 }
 
 function ensureDir(p) {

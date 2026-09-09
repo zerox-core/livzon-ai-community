@@ -52,12 +52,21 @@ class PgSessionStore extends Store {
       `INSERT INTO sessions (sid, sess, expire) VALUES ($1, $2::jsonb, $3)
        ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
       [sid, JSON.stringify(sess), expire],
-    ).then(() => { if (cb) cb(null); }).catch((e) => { if (cb) cb(e); });
+    ).then(() => { if (cb) cb(null); }).catch((e) => {
+      // 与 get/touch 保持一致：PG 不可用时不让 session 中间件把错误抛到全局 500
+      // （否则 express-session 会在响应已发送后调用 next(err)，触发 ERR_HTTP_HEADERS_SENT）
+      console.warn('[session] PG 不可用，set 跳过:', e.code || e.message);
+      if (cb) cb(null);
+    });
   }
 
   destroy(sid, cb) {
     query('DELETE FROM sessions WHERE sid = $1', [sid])
-      .then(() => { if (cb) cb(null); }).catch((e) => { if (cb) cb(e); });
+      .then(() => { if (cb) cb(null); }).catch((e) => {
+        // 同上：destroy 失败时若 cb 报错也会被 express-session 抛到全局 500，按未登录处理
+        console.warn('[session] PG 不可用，destroy 跳过:', e.code || e.message);
+        if (cb) cb(null);
+      });
   }
 
   touch(sid, sess, cb) {

@@ -151,3 +151,10 @@
 - 上传/制品走本地磁盘，对象存储后续平替（改 storage_url 读写两处即可）。
 - 「线下 vs 线上提交」活动编排待单独定规格。
 - 部门信息：测试企业 user_info 不返回，报名页只读部门为空（正式租户+contact 权限后可填）；`#admin` 由导航进入。
+- 启动链路（已修，2026-09-08 提交在 `sheji` 分支，未启动服务验证）：
+  - **npm 解析**：`start.mjs` 新增 `spawnNpm()` 优先用 `process.execPath` 调内置的 `node_modules/npm/bin/npm-cli.js`（`shell=false`，跨环境更稳），找不到时回退 `npm.cmd`（`shell=true`），不再让 npm 安装成为 PATH 依赖。
+  - **8787 端口预检**：在 `launchServer` 前先 `checkPort()`，命中本服务 `/api/info` 响应（`ips` 数组）即视为复用，被陌生响应占用则 `process.exit(1)` 并提示用 `--port`。
+  - **PG 共享守门**：新建 `pg-keeper.mjs`（动作 `ensure` / `status` / `stop` / `wait` / `touch` / `watch`），**唯一**调 `pg_ctl start` 的入口是 `ensure`，其他服务只走 `wait`；`start.mjs` 启动前自动 `pg-keeper.mjs wait --timeout 30`，失败时打印「请先执行 node pg-keeper.mjs ensure」并退出；不再各自弹审批卡。
+  - **空闲回收**：`server/db.js` 的 `query()` 节流写 `logs/pg-heartbeat`（≤10s 一次），`pg-keeper.mjs watch` 检测心跳过期（默认 600s）自动 `pg_ctl stop -m fast`，新流量来时由下次 `ensure` 唤醒。
+  - **`ERR_HTTP_HEADERS_SENT`**：根因在 `server/lib/pg-session-store.js` 的 `set`/`destroy` 把 PG 错误通过 `cb(e)` 抛给 `express-session`，响应已发后再被全局错误中间件 `res.json()` 二次写入。修复：`set`/`destroy` 改为 warn+`cb(null)`（与 `get`/`touch` 保持一致），全局中间件再加 `if (res.headersSent) return next(err)` 兜底。
+  - **未做的事**：未启动服务、未跑端到端验证、未 commit（等用户审阅）。
