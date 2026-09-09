@@ -166,6 +166,12 @@ async function deleteAsset(id) {
   await query('DELETE FROM assets WHERE id=$1', [id]);
 }
 
+// 重命名 / 备注：仅更新 name 与 guide（页面展示名、下载文件名、备注副标题随之生效）
+async function renameAsset(id, { name, guide } = {}) {
+  const r = await query('UPDATE assets SET name=$2, guide=$3 WHERE id=$1 RETURNING *', [id, String(name || ''), String(guide || '')]);
+  return r.rows[0] || null;
+}
+
 // 清理本地文件（仅限确在 /uploads/assets/ 内的随机名文件；外链/占位不动）
 function removeLocalFile(storageUrl) {
   const url = String(storageUrl || '');
@@ -180,7 +186,7 @@ function removeLocalFile(storageUrl) {
 module.exports = {
   ASSET_CATEGORIES, ASSET_EXT,
   saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads,
-  deleteAsset, removeLocalFile,
+  deleteAsset, removeLocalFile, renameAsset,
   categoryForExt, categoryForKind,
   fileHash, findDuplicateAsset,
 };

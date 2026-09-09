@@ -8,7 +8,7 @@ const path = require('path');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, deleteAsset, removeLocalFile, ASSET_CATEGORIES, fileHash, findDuplicateAsset } = require('../lib/asset-store');
+const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, deleteAsset, removeLocalFile, renameAsset, ASSET_CATEGORIES, fileHash, findDuplicateAsset } = require('../lib/asset-store');
 
 const router = express.Router();
 
@@ -202,6 +202,30 @@ router.delete('/:id', authRequired, async (req, res) => {
     res.json(ok({ deleted: true }));
   } catch (e) {
     console.error('[assets.delete]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// PUT /api/assets/:id/meta —— 重命名 / 备注（仅所有者或 admin；name 必填 ≤255，guide ≤4000）
+router.put('/:id/meta', authRequired, async (req, res) => {
+  try {
+    const a = await getAsset(req.params.id);
+    if (!a) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '资源不存在'));
+    const isAdmin = req.session.role === 'admin';
+    if (!isAdmin && a.user_id !== req.session.userId) {
+      return res.status(403).json(err(ErrorCodes.PERMISSION, '只能修改自己的资源'));
+    }
+    const rules = {
+      name: { required: true, type: 'string', max: 255 },
+      guide: { type: 'string', max: 4000 },
+    };
+    const { valid, errors, casted } = checkRules(req.body || {}, rules);
+    if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+    const asset = await renameAsset(req.params.id, { name: String(casted.name || '').trim(), guide: casted.guide || '' });
+    if (!asset) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '资源不存在'));
+    res.json(ok({ asset }));
+  } catch (e) {
+    console.error('[assets.meta]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

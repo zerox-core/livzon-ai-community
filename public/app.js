@@ -3827,6 +3827,7 @@ var MySection = () => {
               : "<a class='my-tag' href='#' onclick='event.preventDefault();window.myAssetDownload(\"" + encodeURIComponent(x.id) + "\");'>下载 ⤓</a>";
             var gsub = String(x.guide || '').replace(/\s+/g, ' ').trim();
             return "<tr><td>" + esc(x.name || x.id) + (String(x.source || "").indexOf("signup:") === 0 ? " <span style='font-size:10px;color:#8a6d1a;background:#fdf6e0;border-radius:4px;padding:1px 6px;vertical-align:1px;white-space:nowrap'>报名作品</span>" : "") + (gsub ? "<div style='font-size:11px;color:#8a8f98;margin-top:3px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + esc(gsub.slice(0, 60)) + (gsub.length > 60 ? "…" : "") + "</div>" : "") + "</td><td>" + esc(ASSET_CAT_LABEL[x.category] || x.category || "—") + "</td><td>" + assetStatusTxt(x) + "</td><td class='mono'>" + assetSizeTxt(x.size) + "</td><td>" + dl +
+              "<button class='my-tag' onclick='window.myAssetEdit(\"" + encodeURIComponent(x.id) + "\");'>改</button>" +
               "<button class='my-tag my-tag-del' onclick='window.myAssetDelete(\"" + encodeURIComponent(x.id) + "\");'>删</button></td></tr>";
           }).join("") + "</tbody></table>";
       }
@@ -3932,6 +3933,68 @@ var MySection = () => {
         var a = document.createElement("a");
         a.href = "/api/assets/" + encodeURIComponent(id) + "/download";
         a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+      };
+      window.myAssetEdit = function (id) {
+        var close = function () { var e = document.getElementById("__assetEditOv"); if (e && e.parentNode) e.parentNode.removeChild(e); };
+        close();
+        fetch("/api/assets/" + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+          var a = (j && j.ok && j.data && j.data.asset) || null;
+          if (!a) { window.alert("资源信息加载失败，请重试"); return; }
+          var ov = document.createElement("div");
+          ov.id = "__assetEditOv";
+          ov.style.cssText = "position:fixed;inset:0;background:rgba(10,14,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
+          ov.onclick = function (e) { if (e.target === ov) close(); };
+          var card = document.createElement("div");
+          card.style.cssText = "width:min(92vw,430px);background:#fff;border-radius:14px;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.25);";
+          var t = document.createElement("div");
+          t.style.cssText = "font-size:15px;font-weight:700;margin-bottom:14px;";
+          t.textContent = "编辑资源 · 重命名 / 备注";
+          card.appendChild(t);
+          var mk = function (label, val, isArea) {
+            var l = document.createElement("label");
+            l.style.cssText = "display:block;font-size:12px;color:#666;margin:0 0 4px;";
+            l.textContent = label;
+            var f = document.createElement(isArea ? "textarea" : "input");
+            if (!isArea) f.maxLength = 255;
+            f.value = val || "";
+            f.style.cssText = "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #d5d9e0;border-radius:8px;font-size:13px;font-family:inherit;margin-bottom:12px;resize:vertical;";
+            card.appendChild(l); card.appendChild(f);
+            return f;
+          };
+          var nameIn = mk("名称（重命名，页面展示与下载文件名以此为准）", a.name, false);
+          var guideIn = mk("备注（可选，展示在名称下方）", a.guide, true);
+          guideIn.rows = 3;
+          var bar = document.createElement("div");
+          bar.style.cssText = "display:flex;gap:10px;justify-content:flex-end;";
+          var cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.textContent = "取消";
+          cancel.style.cssText = "padding:8px 16px;border:1px solid #d5d9e0;background:#f5f6f8;border-radius:8px;font-size:13px;cursor:pointer;";
+          cancel.onclick = close;
+          var save = document.createElement("button");
+          save.type = "button";
+          save.textContent = "保存";
+          save.style.cssText = "padding:8px 18px;border:none;background:#1f6feb;color:#fff;border-radius:8px;font-size:13px;cursor:pointer;";
+          save.onclick = function () {
+            var nm = String(nameIn.value || "").trim();
+            var gd = String(guideIn.value || "").trim();
+            if (!nm) { window.alert("名称不能为空"); return; }
+            save.disabled = true; save.textContent = "保存中…";
+            fetch("/api/assets/" + encodeURIComponent(id) + "/meta", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: nm, guide: gd })
+            }).then(function (r) { return r.json(); }).then(function (j2) {
+              if (j2 && j2.ok) { close(); window.myAssetsRefresh(); }
+              else { save.disabled = false; save.textContent = "保存"; window.alert((j2 && j2.error && j2.error.message) || "保存失败，请重试"); }
+            }).catch(function () { save.disabled = false; save.textContent = "保存"; window.alert("保存失败，请重试"); });
+          };
+          bar.appendChild(cancel); bar.appendChild(save);
+          card.appendChild(bar);
+          ov.appendChild(card);
+          document.body.appendChild(ov);
+          nameIn.focus();
+        }).catch(function () { window.alert("资源信息加载失败，请重试"); });
       };
       window.myAssetDelete = function (id) {
         if (!window.confirm("确定删除该资源？相关作品/帖子对该资源的引用会置空，且不可恢复。")) return;
@@ -6642,14 +6705,19 @@ var App = () => {
   });
   const [selectedWork, setSelectedWork] = React.useState(null);
   const lightMode = page !== "home";
+  if (window.__pageScrollCur !== page) { try { window.__pageScrollCur = page; } catch (_) {} }
   const handleNavigate = (target) => {
     if (target === "join") {
       window.location.href = "login.html";
       return;
     }
+    try { window.__pageScroll = window.__pageScroll || {}; window.__pageScroll[window.__pageScrollCur || "home"] = window.scrollY || window.pageYOffset || 0; } catch (_) {}
     setPage(target);
     setSelectedWork(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.__pageScrollCur = target;
+    var my = ((window.__pageScroll || {})[target]) || 0;
+    if (my > 0) { setTimeout(function () { try { window.scrollTo(0, my); } catch (_) {} }, 60); }
+    else { window.scrollTo({ top: 0, behavior: "smooth" }); }
   };
   const handleWorkClick = (idx) => {
     setSelectedWork(idx);
@@ -6673,7 +6741,18 @@ var App = () => {
   React.useEffect(() => {
     const onHash = () => {
       const h = String(window.location.hash || "").replace(/^#/, "").split("?")[0];
-      if (HASH_PAGES[h]) { setPage(h); try { window.scrollTo(0, 0); } catch (_) {} }
+      if (HASH_PAGES[h]) {
+        var prev = window.__pageScrollCur || "home";
+        try { window.__pageScroll = window.__pageScroll || {}; window.__pageScroll[prev] = window.scrollY || window.pageYOffset || 0; } catch (_) {}
+        setPage(h);
+        window.__pageScrollCur = h;
+        var sy = ((window.__pageScroll || {})[h]) || 0;
+        try { window.scrollTo(0, sy); } catch (_) {}
+        if (sy > 0) {
+          setTimeout(function () { if (Math.abs((window.scrollY || 0) - sy) < 160) { try { window.scrollTo(0, sy); } catch (_) {} } }, 60);
+          setTimeout(function () { if (Math.abs((window.scrollY || 0) - sy) < 160) { try { window.scrollTo(0, sy); } catch (_) {} } }, 450);
+        }
+      }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
