@@ -986,6 +986,15 @@ var SIGNUP_CSS = `
   .sig-btn:hover{background:#000;}
   .sig-done{font-size:26px;font-weight:700;color:#2a9d63;margin-bottom:10px;text-align:center;}
   @media(max-width:640px){.sig-card{padding:24px 20px;}}
+  .sig-drop{border:1.5px dashed #c9d4e8;border-radius:10px;padding:22px 16px;text-align:center;cursor:pointer;background:#fafcff;transition:border-color .15s,background .15s}
+  .sig-drop:hover,.sig-drop.drag{border-color:#2568d8;background:#f0f5ff}
+  .sig-drop-ic{font-size:26px;line-height:1}
+  .sig-drop-t{margin-top:6px;font-size:14px;color:#333}
+  .sig-drop-s{margin-top:2px;font-size:12px;color:#999}
+  .sig-pick{display:flex;align-items:center;gap:8px;border:1px solid #dce5f2;border-radius:10px;padding:10px 12px;background:#f7faff;font-size:13px;color:#333}
+  .sig-pick-nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sig-pick-x{border:none;background:#eef2f8;color:#666;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1;flex:none}
+  .sig-pick-x:hover{background:#ffd9d9;color:#c33}
   /* —— 阶段改造：加载骨架 / 分节 / 作品来源切换 / 资产选择列表 / 草稿条 —— */
   @keyframes sigsk{0%{background-position:200% 0}100%{background-position:-200% 0}}
   .sig-loading{display:flex;flex-direction:column;gap:14px;padding:8px 0}
@@ -1100,10 +1109,14 @@ var SignupPage = () => {
         if (profile.needUpload) {
           h += secHead("作品文件", "用于评审，提交前请确认可访问");
           h += "<div class='sig-mode'>" +
-            "<button type='button' id='sigModeUpload' class='on'><b>⬆ 上传新文件</b><span>源码包 / 文档 / 视频 · 单个 ≤50MB</span></button>" +
+            "<button type='button' id='sigModeUpload' class='on'><b>⬆ 上传新文件</b><span>源码包 / 文档 / 视频 · 不限大小</span></button>" +
             "<button type='button' id='sigModeAsset'><b>▣ 从我的作品选择</b><span>直接选用已上传的资产</span></button>" +
             "</div>";
-          h += "<div id='sigUpBox'><div class='sig-field'><label>作品文件 <span class='sig-req'>*</span></label><input id='sig-file' type='file'><div class='sig-hint'>支持 zip / tar.gz / rar 等压缩包、pdf / doc / md 文档、mp4 等视频，单个 ≤50MB</div></div></div>";
+          h += "<div id='sigUpBox'><div class='sig-field'><label>作品文件 <span class='sig-req'>*</span></label>" +
+            "<div id='sigDrop' class='sig-drop'><div class='sig-drop-ic'>📤</div><div class='sig-drop-t'>点击选择文件</div><div class='sig-drop-s'>也可以直接把文件拖到这里</div></div>" +
+            "<div id='sigPick' class='sig-pick' style='display:none'><span class='sig-pick-nm' id='sigPickNm'></span><button type='button' id='sigPickX' class='sig-pick-x' title='移除所选文件'>✕</button></div>" +
+            "<input id='sig-file' type='file' style='display:none'>" +
+            "<div class='sig-hint'>支持 zip / tar.gz / rar 等压缩包、pdf / doc / md 文档、mp4 等视频，不限大小；重复文件会自动检测并拦截</div></div></div>";
           h += "<div id='sigAsBox' style='display:none'>";
           if (myAssets.length) {
             h += "<div class='sig-assets'>";
@@ -1133,6 +1146,30 @@ var SignupPage = () => {
       }
       h += "</div></div>";
       ref.current.innerHTML = h;
+      // 上传区自定义交互：点击/拖拽选文件，选中后展示文件名条（原生 file input 保持隐藏）
+      var sigDrop = document.getElementById("sigDrop"), sigFile = document.getElementById("sig-file"), sigPick = document.getElementById("sigPick");
+      function sigShowPick() {
+        if (!sigPick || !sigFile) return;
+        var f0 = sigFile.files && sigFile.files[0];
+        if (!f0) { sigPick.style.display = "none"; if (sigDrop) sigDrop.style.display = ""; return; }
+        if (sigDrop) sigDrop.style.display = "none";
+        sigPick.style.display = "flex";
+        var nm = document.getElementById("sigPickNm");
+        if (nm) nm.textContent = f0.name + (f0.size ? " · " + fmtSize(f0.size) : "");
+      }
+      if (sigDrop && sigFile) {
+        sigDrop.addEventListener("click", function () { sigFile.click(); });
+        sigDrop.addEventListener("dragover", function (e) { e.preventDefault(); sigDrop.classList.add("drag"); });
+        sigDrop.addEventListener("dragleave", function () { sigDrop.classList.remove("drag"); });
+        sigDrop.addEventListener("drop", function (e) {
+          e.preventDefault(); sigDrop.classList.remove("drag");
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { sigFile.files = e.dataTransfer.files; sigShowPick(); }
+        });
+      }
+      if (sigFile) sigFile.addEventListener("change", sigShowPick);
+      var sigPickX = document.getElementById("sigPickX");
+      if (sigPickX && sigFile) sigPickX.addEventListener("click", function () { sigFile.value = ""; sigShowPick(); });
+      sigShowPick();
       var form = document.getElementById("sigForm");
       // —— 作品来源模式切换（上传新文件 / 从我的作品选择）——
       var mode = "upload";
@@ -3534,13 +3571,36 @@ var MySection = () => {
               "<div class='my-overlay-btns'><button class='my-tag my-tag-accent' onclick='window.myAssetSubmit(\"program\")'>提交登记</button><button class='my-tag' onclick='window.myCloseAssetsPanel()'>取消</button></div>" +
               "</div>"
             : "<div class='my-overlay-body'>" +
-              "<input type='file' id='ap-file' class='my-file'>" +
-              "<div class='my-ap-hint'>支持程序包 / 源码包 / 文档 / 多媒体（zip .pdf .md .mp4 等，≤50MB），按类型自动归入四分类。</div>" +
+              "<div id='ap-drop' class='sig-drop'><div class='sig-drop-ic'>📤</div><div class='sig-drop-t'>点击选择文件</div><div class='sig-drop-s'>也可以直接把文件拖到这里</div></div>" +
+              "<div id='ap-pick' class='sig-pick' style='display:none'><span class='sig-pick-nm' id='ap-pick-nm'></span><button type='button' id='ap-pick-x' class='sig-pick-x' title='移除所选文件'>✕</button></div>" +
+              "<input type='file' id='ap-file' class='my-file' style='display:none'>" +
+              "<div class='my-ap-hint'>支持程序包 / 源码包 / 文档 / 多媒体（zip .pdf .md .mp4 等），不限大小，重复文件自动检测，按类型自动归入四分类。</div>" +
               "<div class='my-overlay-btns'><button class='my-tag my-tag-accent' onclick='window.myAssetSubmit(\"local\")'>上传</button><button class='my-tag' onclick='window.myCloseAssetsPanel()'>取消</button></div>" +
               "</div>") +
           "</div>";
         document.body.appendChild(ov);
         window.__assetPanel = ov;
+        // 本地上传面板：drop zone 交互（与报名页一致）
+        (function () {
+          var apDrop = document.getElementById('ap-drop'), apFile = document.getElementById('ap-file'), apPick = document.getElementById('ap-pick');
+          if (!apDrop || !apFile) return;
+          function fmtSz(n) { n = +n || 0; return n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n > 1024 ? Math.round(n / 1024) + 'KB' : n + 'B'; }
+          function apShow() {
+            var f0 = apFile.files && apFile.files[0];
+            if (!f0) { apPick.style.display = 'none'; apDrop.style.display = ''; return; }
+            apDrop.style.display = 'none'; apPick.style.display = 'flex';
+            var nm = document.getElementById('ap-pick-nm');
+            if (nm) nm.textContent = f0.name + (f0.size ? ' · ' + fmtSz(f0.size) : '');
+          }
+          apDrop.addEventListener('click', function () { apFile.click(); });
+          apDrop.addEventListener('dragover', function (e) { e.preventDefault(); apDrop.classList.add('drag'); });
+          apDrop.addEventListener('dragleave', function () { apDrop.classList.remove('drag'); });
+          apDrop.addEventListener('drop', function (e) { e.preventDefault(); apDrop.classList.remove('drag'); if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { apFile.files = e.dataTransfer.files; apShow(); } });
+          apFile.addEventListener('change', apShow);
+          var apX = document.getElementById('ap-pick-x');
+          if (apX) apX.addEventListener('click', function () { apFile.value = ''; apShow(); });
+          apShow();
+        })();
         // GitHub 仓库识别：repo 输入含 github.com 时展示 README 拉取（服务端代理，绕过 CORS）
         var repoInput = document.getElementById('ap-repo');
         var ghBox = document.getElementById('ap-gh-box'), ghBtn = document.getElementById('ap-gh-fetch'), ghView = document.getElementById('ap-gh-view');

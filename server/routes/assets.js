@@ -8,19 +8,18 @@ const path = require('path');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
-const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, deleteAsset, removeLocalFile, ASSET_CATEGORIES } = require('../lib/asset-store');
+const { saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads, deleteAsset, removeLocalFile, ASSET_CATEGORIES, fileHash, findDuplicateAsset } = require('../lib/asset-store');
 
 const router = express.Router();
 
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'assets');
 const ASSETS_ROOT = path.join(__dirname, '..', '..', 'public', 'uploads');
-const maxMb = () => parseInt(process.env.ASSET_MAX_MB || '50', 10);
 
 // multer 懒加载（与全仓「优雅降级」一致：缺依赖照常启动，上传端点给友好提示）
 function getUploadMw() {
   try {
     const multer = require('multer');
-    return multer({ storage: multer.memoryStorage(), limits: { fileSize: maxMb() * 1024 * 1024 } }).single('file');
+    return multer({ storage: multer.memoryStorage() }).single('file'); // 已取消大小上限（重复文件由 sha256 检测拦截）
   } catch (_) {
     return null;
   }
@@ -31,7 +30,7 @@ router.post('/upload', authRequired, (req, res) => {
   const mw = getUploadMw();
   if (!mw) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, '上传未启用：请在 server/ 执行 npm install multer'));
   mw(req, res, async (e) => {
-    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.code === 'LIMIT_FILE_SIZE' ? `文件超过 ${maxMb()}MB 上限` : e.message));
+    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.message));
     const rules = {
       category: { type: 'string', max: 20 },
       kind: { type: 'string', max: 40 },
@@ -46,6 +45,13 @@ router.post('/upload', authRequired, (req, res) => {
       return res.status(400).json(err(ErrorCodes.VALIDATION, `不支持的分类：${category}`));
     }
     try {
+      // 重复检测：同一用户重复上传内容完全一致的文件 → 拦截（不落盘、不登记）
+      const hash = fileHash(f.buffer);
+      const dup = await findDuplicateAsset(req.session.userId, hash);
+      if (dup) {
+        const when = dup.created_at ? String(dup.created_at).slice(0, 10) : '';
+        return res.status(400).json(err(ErrorCodes.VALIDATION, '重复上传：「' + (dup.name || '同名文件') + '」' + (when ? '（' + when + ' 已上传）' : '') + '已在您的资源中，无需重复上传'));
+      }
       const saved = saveUploadedFile(f.buffer, {
         category,
         kind: casted.kind || '',
@@ -59,6 +65,7 @@ router.post('/upload', authRequired, (req, res) => {
         name: saved.name,
         size: saved.size,
         storage_url: saved.url,
+        checksum: hash,
       });
       res.status(201).json(ok({
         asset: {

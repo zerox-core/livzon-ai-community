@@ -4,6 +4,7 @@
 // 契约：docs/api/assets-api.md v1。
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { query } = require('../db');
 const { genId, utf8Field } = require('./community-core');
 
@@ -74,6 +75,22 @@ function saveUploadedFile(buffer, { category = '', kind = '', origname = '' } = 
     category: cat,
     kind,
   };
+}
+
+// 文件内容指纹（重复检测用）：返回 buffer 的 sha256 hex
+function fileHash(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+// 重复检测：同一用户是否已上传过内容完全一致（sha256）的本地文件；命中返回已有资产行，否则 null。
+// 复用 assets.checksum 列（012 迁移已建），无需新表结构。
+async function findDuplicateAsset(userId, hash) {
+  if (!hash) return null;
+  const r = await query(
+    `SELECT id, name, created_at FROM assets WHERE user_id=$1 AND checksum=$2 AND backend='local' LIMIT 1`,
+    [userId, hash]
+  );
+  return r.rows[0] || null;
 }
 
 // 写 assets 表（本地上传或登记外部资源两种 row）。返回完整行。
@@ -165,4 +182,5 @@ module.exports = {
   saveUploadedFile, createAsset, getAsset, listAssets, bumpDownloads,
   deleteAsset, removeLocalFile,
   categoryForExt, categoryForKind,
+  fileHash, findDuplicateAsset,
 };

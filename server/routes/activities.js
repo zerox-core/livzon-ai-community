@@ -11,7 +11,7 @@ const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
 const { userSnapshot, utf8Field } = require('../lib/community-core');
-const { saveUploadedFile, createAsset, getAsset } = require('../lib/asset-store');
+const { saveUploadedFile, createAsset, getAsset, fileHash, findDuplicateAsset } = require('../lib/asset-store');
 const { buildReminderCard } = require('../lib/reminders');
 const { LarkClient } = require('../lark-client');
 const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
@@ -19,7 +19,6 @@ const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/s
 const router = express.Router();
 const lark = new LarkClient(process.env);
 const DATA_PATH = path.join(__dirname, '..', '..', 'public', 'data', 'activities.json');
-const signupMaxMb = () => parseInt(process.env.ASSET_MAX_MB || '50', 10);
 
 function readJsonMeta() {
   try {
@@ -183,18 +182,25 @@ router.get('/:id/signup-form', async (req, res) => {
 function getSignupUploadMw() {
   try {
     const multer = require('multer');
-    return multer({ storage: multer.memoryStorage(), limits: { fileSize: signupMaxMb() * 1024 * 1024 } }).single('file');
+    return multer({ storage: multer.memoryStorage() }).single('file'); // 已取消大小上限（重复文件由 sha256 检测拦截）
   } catch (_) { return null; }
 }
 router.post('/:id/signup/upload', authRequired, (req, res) => {
   const mw = getSignupUploadMw();
   if (!mw) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, '上传未启用：请在 server/ 执行 npm install multer'));
   mw(req, res, async (e) => {
-    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.code === 'LIMIT_FILE_SIZE' ? `文件超过 ${signupMaxMb()}MB 上限` : e.message));
+    if (e) return res.status(400).json(err(ErrorCodes.VALIDATION, e.message));
     const f = req.file;
     if (!f) return res.status(400).json(err(ErrorCodes.VALIDATION, '缺少文件字段 file'));
     const orig = utf8Field(String(f.originalname || '')).slice(0, 255).replace(/[\\/:*?"<>|\r\n]/g, '_');
     try {
+      // 重复检测：同一用户重复上传内容完全一致的文件 → 拦截（不落盘、不登记）
+      const hash = fileHash(f.buffer);
+      const dup = await findDuplicateAsset(req.session.userId, hash);
+      if (dup) {
+        const when = dup.created_at ? String(dup.created_at).slice(0, 10) : '';
+        return res.status(400).json(err(ErrorCodes.VALIDATION, '重复上传：「' + (dup.name || '同名文件') + '」' + (when ? '（' + when + ' 已上传）' : '') + '已在您的资源中，无需重复上传'));
+      }
       // 走资产子系统：统一落盘 /uploads/assets/<cat>/ + 登记 assets 行（category 按扩展名自动推断）
       const saved = saveUploadedFile(f.buffer, { origname: orig });
       const asset = await createAsset({
@@ -206,6 +212,7 @@ router.post('/:id/signup/upload', authRequired, (req, res) => {
         size: f.size,
         storage_url: saved.url,
         source: 'signup:' + id,
+        checksum: hash,
       });
       res.status(201).json(ok({ url: saved.url, filename: saved.name, size: saved.size, assetId: asset.id }));
     } catch (e2) {
