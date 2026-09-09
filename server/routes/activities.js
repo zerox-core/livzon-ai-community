@@ -13,6 +13,7 @@ const { authRequired } = require('../middleware/auth');
 const { userSnapshot, utf8Field } = require('../lib/community-core');
 const { saveUploadedFile, createAsset, getAsset, fileHash, findDuplicateAsset } = require('../lib/asset-store');
 const { buildReminderCard } = require('../lib/reminders');
+const oneclick = require('../lib/oneclick');
 const { LarkClient } = require('../lark-client');
 const { DEFAULT_PROFILE, sanitizeProfile, validateResponse } = require('../lib/signup-form');
 
@@ -131,37 +132,46 @@ async function notifyAct(userId, openId, { type, stage, title, body, activityId,
 
 // 新报名 → 管理员单聊卡片 + 站内通知（fire-and-forget，失败仅记日志，不阻塞报名响应）。
 // 管理员 = users 表 role='admin' 且 open_id 为飞书身份（ou_ 前缀）的用户。
-function adminSignupCard({ activityTitle, name, dept, contact, site }) {
+// 注意与报名人收到的「报名已提交」用户卡严格区分：本卡是管理员待办，文案与按钮只面向审批场景。
+// site 非空时附「一键通过/一键驳回」HMAC 签名链接（免登录、7 天有效、仅本条报名）+ 管理端入口。
+function adminSignupCard({ signupId, activityTitle, name, dept, contact, site }) {
   const md = [
     `**活动**：${activityTitle}`,
     `**报名人**：${name || '—'}${dept ? `（${dept}）` : ''}`,
     contact ? `**联系方式**：${contact}` : '',
     '',
-    '可在管理端「报名管理」中查看全部报名信息。',
+    '_管理员待办：活动报名风险低，可直接点下方按钮一键审批；报名人不会收到本条消息。_',
   ].filter(Boolean).join('\n');
   const elements = [{ tag: 'div', text: { tag: 'lark_md', content: md } }];
   if (site) {
-    elements.push({
-      tag: 'action',
-      actions: [{ tag: 'button', text: { tag: 'plain_text', content: '去管理端查看' }, type: 'primary', url: site + '/#admin' }],
-    });
+    const actions = [];
+    const okSig = oneclick.sign(signupId, 'approve');
+    const noSig = oneclick.sign(signupId, 'reject');
+    if (okSig && noSig) {
+      actions.push({ tag: 'button', text: { tag: 'plain_text', content: '✓ 一键通过' }, type: 'primary',
+        url: `${site}/api/admin/signups/oneclick/${signupId}?action=approve&exp=${okSig.exp}&sig=${okSig.sig}` });
+      actions.push({ tag: 'button', text: { tag: 'plain_text', content: '✕ 一键驳回' }, type: 'danger',
+        url: `${site}/api/admin/signups/oneclick/${signupId}?action=reject&exp=${noSig.exp}&sig=${noSig.sig}` });
+    }
+    actions.push({ tag: 'button', text: { tag: 'plain_text', content: '管理端处理' }, type: 'default', url: site + '/#admin' });
+    elements.push({ tag: 'action', actions });
   }
-  return { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: '新报名' }, template: 'blue' }, elements };
+  return { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: '新报名待审批' }, template: 'orange' }, elements };
 }
 
-async function notifyAdminsOfSignup({ activityId, activityTitle, name, dept, contact }) {
+async function notifyAdminsOfSignup({ signupId, activityId, activityTitle, name, dept, contact }) {
   try {
     const admins = await query(`SELECT id, open_id FROM users WHERE role='admin' AND open_id LIKE 'ou_%'`);
     for (const row of admins.rows) {
       try {
         await query(
           `INSERT INTO notifications (user_id, type, title, body, link, activity_id, stage)
-           VALUES ($1,'admin-signup','新报名',$2,'',$3,'admin')`,
+           VALUES ($1,'admin-signup','新报名待审批',$2,'#admin',$3,'admin')`,
           [row.id, `活动「${activityTitle}」收到新报名：${name || '—'}${dept ? `（${dept}）` : ''}${contact ? ` · ${contact}` : ''}`, activityId]);
       } catch (e) { console.error('[activities.adminNotify.db]', e.message); }
       try {
         const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
-        const card = adminSignupCard({ activityTitle, name, dept, contact, site });
+        const card = adminSignupCard({ signupId, activityTitle, name, dept, contact, site });
         const r = await lark.sendCardToUser(row.open_id, card);
         if (!r.ok) console.error('[activities.adminNotify.card]', r.error);
       } catch (e) { console.error('[activities.adminNotify.card]', e.message); }
@@ -329,7 +339,7 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     });
     // 新报名 → 管理员卡片（异步不阻塞报名响应）
     notifyAdminsOfSignup({
-      activityId: id, activityTitle: a.rows[0].title,
+      signupId: r.rows[0].id, activityId: id, activityTitle: a.rows[0].title,
       name: snap.name, dept: snap.dept, contact: (casted.contact || '').trim(),
     }).catch((e) => console.error('[activities.adminNotify]', e.message));
     res.status(201).json(ok({ signedUp: true, repeated: false, message: '报名已提交，审核结果将通过飞书通知您' }));

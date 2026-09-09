@@ -706,7 +706,7 @@ var AdminPage = () => {
     function worksBodyHtml(flt) {
       if (!flt.length) return "<div class='adm-empty'><span class='adm-empty-i'>🗂️</span>没有符合条件的作品</div>";
       return "<div class='adm-note'>共 " + flt.length + " 件作品</div>" +
-        "<div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th>作品</th><th style='width:210px'>作者</th><th style='width:110px'>状态</th><th style='width:110px'>发布</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
+        "<div class='adm-tbl-wrap'><table class='my-table adm-table min-w-860'><thead><tr><th>作品</th><th style='width:210px'>作者</th><th style='width:110px'>状态</th><th style='width:110px'>发布</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
         flt.map(function (x) {
           var acts = "";
           if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">✕ 驳回</button>";
@@ -754,7 +754,7 @@ var AdminPage = () => {
     function regsBodyHtml(flt) {
       if (!flt.length) return "<div class='adm-empty'><span class='adm-empty-i'>📋</span>没有符合条件的报名</div>";
       return "<div class='adm-note'>共 " + flt.length + " 条报名</div>" +
-        "<div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:210px'>联系方式</th><th>活动</th><th style='width:110px'>状态</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
+        "<div class='adm-tbl-wrap'><table class='my-table adm-table min-w-980'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:210px'>联系方式</th><th>活动</th><th style='width:110px'>状态</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
         flt.map(function (x) {
           var acts = x.status === "pending"
             ? "<button class='adm-btn ok' onclick=\"window.myAdminReg(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminReg(" + x.id + ",'rejected')\">✕ 驳回</button>"
@@ -801,7 +801,7 @@ var AdminPage = () => {
         if (!acts.length) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>📅</span>暂无预约</div>"; return; }
         el.innerHTML = acts.map(function (g, gi) {
           return "<div class='adm-grp" + (gi === 0 ? "" : " closed") + "'><div class='adm-grp-h' onclick=\"window.__admToggleGrp&&window.__admToggleGrp(this)\"><span class='adm-grp-caret'>▾</span><span class='adm-grp-t'>" + esc(g.title) + "</span><span class='adm-grp-c'>" + g.total + " 人</span></div>" +
-            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th>参与期待</th><th style='width:170px'>预约时间</th></tr></thead><tbody>" +
+            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table min-w-660'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th>参与期待</th><th style='width:170px'>预约时间</th></tr></thead><tbody>" +
             g.reservations.map(function (x) { return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.dept || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
             "</tbody></table></div></div></div>";
         }).join("");
@@ -815,7 +815,7 @@ var AdminPage = () => {
         if (!acts.length) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>📋</span>暂无报名</div>"; return; }
         el.innerHTML = acts.map(function (g, gi) {
           return "<div class='adm-grp" + (gi === 0 ? "" : " closed") + "'><div class='adm-grp-h' onclick=\"window.__admToggleGrp&&window.__admToggleGrp(this)\"><span class='adm-grp-caret'>▾</span><span class='adm-grp-t'>" + esc(g.title) + "</span><span class='adm-grp-c'>" + g.total + " 人</span></div>" +
-            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:200px'>备用联系方式</th><th style='width:190px'>作品文件</th><th>自定义字段</th><th style='width:170px'>报名时间</th><th style='width:110px'>状态</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
+            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table min-w-1380'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:200px'>备用联系方式</th><th style='width:190px'>作品文件</th><th>自定义字段</th><th style='width:170px'>报名时间</th><th style='width:110px'>状态</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
             g.signups.map(function (x) {
               var resp = x.response ? Object.keys(x.response).filter(function (k) { return k !== "__team"; }).map(function (k) { return esc(k) + "：" + esc(String(x.response[k] || "")); }).join("<br>") : "";
               if (x.response && x.response.__team) resp = (resp ? resp + "<br>" : "") + "组队：" + esc(x.response.__team);
@@ -1193,7 +1193,12 @@ var AdminPage = () => {
     .adm-search{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;padding:7px 12px;width:220px;transition:border-color .15s;background:#fafbfc;}
     .adm-search:focus{outline:none;border-color:#2568d8;background:#fff;}
     .adm-tbl-wrap{overflow-x:auto;border:1px solid rgba(0,0,0,0.07);border-radius:10px;}
-    .adm-tbl-wrap .adm-table{margin:0;width:100%;min-width:720px;table-layout:fixed;border-collapse:collapse;background:#fff;}
+    .adm-tbl-wrap .adm-table{margin:0;width:100%;table-layout:fixed;border-collapse:collapse;background:#fff;}
+    .adm-table.min-w-660{min-width:660px;}
+    .adm-table.min-w-860{min-width:860px;}
+    .adm-table.min-w-980{min-width:980px;}
+    .adm-table.min-w-1380{min-width:1380px;}
+    .adm-table th,.adm-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .adm-table td{vertical-align:middle;font-size:13px;padding:12px 14px;border-bottom:1px solid rgba(0,0,0,0.05);color:rgba(0,0,0,0.82);}
     .adm-table tbody tr:last-child td{border-bottom:none;}
     .adm-table .mono{font-family:'JetBrains Mono',monospace;font-size:12px;color:#999;}

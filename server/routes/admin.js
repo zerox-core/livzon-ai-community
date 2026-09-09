@@ -12,6 +12,7 @@ const { adminRequired } = require('../middleware/auth');
 const community = require('./community');
 const { LarkClient } = require('../lark-client');
 const { runReminders, buildReminderCard } = require('../lib/reminders');
+const oneclick = require('../lib/oneclick');
 const { sanitizeProfile } = require('../lib/signup-form');
 
 const router = express.Router();
@@ -158,6 +159,49 @@ router.get('/activities/signups', adminRequired, async (req, res) => {
   } catch (e) {
     console.error('[admin.signups]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// 一键审批落地页（极简 HTML，免登录签名链接的返回页）
+function oneclickPage(title, detail, okFlag) {
+  const color = okFlag === true ? '#2a9d63' : okFlag === false ? '#c94b4b' : '#666';
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - 丽珠 AI 社团</title></head>` +
+    `<body style="margin:0;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#f5f6f7;display:flex;align-items:center;justify-content:center;min-height:100vh;">` +
+    `<div style="background:#fff;border-radius:14px;padding:36px 44px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,0.08);max-width:420px;margin:16px;">` +
+    `<div style="font-size:22px;font-weight:700;color:${color};margin-bottom:12px;">${title}</div>` +
+    `<div style="font-size:14px;color:#555;line-height:1.7;">${detail}</div>` +
+    `<div style="font-size:12px;color:#999;margin-top:22px;">本页面由报名审批链接打开，可安全关闭</div>` +
+    `</div></body></html>`;
+}
+
+// GET /api/admin/signups/oneclick/:id —— 飞书卡片「一键审批」落地端点（HMAC 签名免登录；幂等）。
+// 仅当记录仍处于 pending 才执行变更并通知报名人；重复点击/已处理直接回显当前状态，不重复通知。
+router.get('/signups/oneclick/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const action = String(req.query.action || '');
+  const map = { approve: 'approved', reject: 'rejected' };
+  const bad = (t, d) => res.status(400).type('html').send(oneclickPage(t, d, false));
+  if (Number.isNaN(id) || !map[action]) return bad('链接无效', '审批链接参数不完整，请到管理端处理。');
+  if (!oneclick.verify(id, action, req.query.exp, req.query.sig)) {
+    return bad('链接已失效', '签名无效或链接已过期（7 天有效），请到管理端「报名名单」中处理。');
+  }
+  try {
+    const cur = await query(`SELECT status FROM activity_signups WHERE id=$1`, [id]);
+    if (!cur.rows.length) {
+      return res.status(404).type('html').send(oneclickPage('记录不存在', '该报名记录可能已被删除。', false));
+    }
+    const target = map[action];
+    if (cur.rows[0].status !== 'pending') {
+      const label = cur.rows[0].status === 'approved' ? '已通过' : cur.rows[0].status === 'rejected' ? '已驳回' : cur.rows[0].status;
+      return res.type('html').send(oneclickPage('该报名已处理', `当前状态：${label}。如需变更请到管理端操作。`, null));
+    }
+    await query(`UPDATE activity_signups SET status=$1, updated_at=now() WHERE id=$2 AND status='pending'`, [target, id]);
+    notifySignupResult(id, target).catch((e) => console.error('[admin.signupResult]', e.message));
+    res.type('html').send(oneclickPage(target === 'approved' ? '✓ 已通过' : '✕ 已驳回',
+      '审核结果已通过站内通知和飞书卡片告知报名人。', target === 'approved'));
+  } catch (e) {
+    console.error('[admin.oneclick]', e);
+    res.status(500).type('html').send(oneclickPage('处理失败', '服务端异常，请稍后重试或到管理端处理。', false));
   }
 });
 
