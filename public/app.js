@@ -1073,7 +1073,6 @@ var AdminPage = () => {
       afPreview();
     };
     var h = "<div class='my-sec my-admin'>" +
-      "<div class='my-sechead'><span class='t'>管理控制台</span></div>" +
       "<div class='adm-tabs'>" +
         "<button class='adm-tab on' onclick=\"window.myAdminTab&&window.myAdminTab('works')\">作品审核<span class='adm-badge' id='adm-badge-works' style='display:none'></span></button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核<span class='adm-badge' id='adm-badge-regs' style='display:none'></span></button>" +
