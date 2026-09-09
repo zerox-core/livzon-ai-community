@@ -11,7 +11,7 @@ const { ok, err, ErrorCodes } = require('../contract');
 const { adminRequired } = require('../middleware/auth');
 const community = require('./community');
 const { LarkClient } = require('../lark-client');
-const { runReminders } = require('../lib/reminders');
+const { runReminders, buildReminderCard } = require('../lib/reminders');
 const { sanitizeProfile } = require('../lib/signup-form');
 
 const router = express.Router();
@@ -141,7 +141,7 @@ router.get('/activities/reservations', adminRequired, async (req, res) => {
 router.get('/activities/signups', adminRequired, async (req, res) => {
   try {
     const r = await query(
-      `SELECT s.id, s.activity_id, a.title, s.user_id, s.name, s.dept, s.contact, s.upload, s.response, s.created_at
+      `SELECT s.id, s.activity_id, a.title, s.user_id, s.name, s.dept, s.contact, s.upload, s.response, s.created_at, s.status
        FROM activity_signups s JOIN activities a ON a.id = s.activity_id
        ORDER BY a.kind, a.sort, s.created_at`);
     const groups = new Map();
@@ -152,11 +152,66 @@ router.get('/activities/signups', adminRequired, async (req, res) => {
       const g = groups.get(row.activity_id);
       g.total++;
       g.signups.push({ id: row.id, userId: row.user_id, name: row.name, dept: row.dept, contact: row.contact,
-        upload: row.upload || {}, response: row.response || {}, createdAt: row.created_at });
+        upload: row.upload || {}, response: row.response || {}, createdAt: row.created_at, status: row.status || 'approved' });
     }
     res.json(ok({ activities: [...groups.values()] }));
   } catch (e) {
     console.error('[admin.signups]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// 报名审核结果 → 站内通知 + 飞书卡片（fire-and-forget，失败仅记日志，不阻塞审核响应）
+async function notifySignupResult(signupId, status) {
+  try {
+    const r = await query(
+      `SELECT s.id, s.activity_id, s.name, s.status, s.user_id, u.open_id, a.title, a.date_label, a.location
+       FROM activity_signups s
+       JOIN activities a ON a.id = s.activity_id
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1`, [signupId]);
+    const row = r.rows[0];
+    if (!row || !row.user_id) return;
+    const approved = status === 'approved';
+    const title = approved ? '报名已通过' : '报名未通过';
+    const body = approved
+      ? `活动「${row.title}」的报名已通过审核，请准时参加。`
+      : `很遗憾，活动「${row.title}」的报名未通过审核。如有疑问可联系组织者。`;
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, type, title, body, link, activity_id, stage)
+         VALUES ($1,'signup-result',$2,$3,'#activities',$4,'result')`,
+        [row.user_id, title, body, row.activity_id]);
+    } catch (e) { console.error('[admin.signupResult.db]', e.message); }
+    if (row.open_id && /^ou_/.test(String(row.open_id))) {
+      const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
+      const card = buildReminderCard(
+        { title: row.title, activity_id: row.activity_id, location: row.location || '' },
+        row.date_label || '', site,
+        { header: title, foot: approved ? '审核已通过，请准时参加。' : '报名未通过审核，感谢您的参与。' });
+      const s = await lark.sendCardToUser(row.open_id, card);
+      if (!s.ok) console.error('[admin.signupResult.card]', title, s.error);
+    }
+  } catch (e) { console.error('[admin.signupResult]', e.message); }
+}
+
+// PATCH /api/admin/activities/signups/:id —— 报名审核（通过/驳回；成功后异步通知本人）
+router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
+  const status = (req.body || {}).status;
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json(err(ErrorCodes.VALIDATION, 'status 取值非法（approved/rejected）'));
+  }
+  try {
+    const r = await query(
+      `UPDATE activity_signups SET status=$1, updated_at=now() WHERE id=$2 RETURNING id, activity_id, status`,
+      [status, id]);
+    if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '报名记录不存在'));
+    notifySignupResult(id, status).catch((e) => console.error('[admin.signupResult]', e.message));
+    res.json(ok(r.rows[0]));
+  } catch (e) {
+    console.error('[admin.signups.audit]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

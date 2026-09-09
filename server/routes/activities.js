@@ -313,8 +313,8 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     }
     const response = body.response && typeof body.response === 'object' ? body.response : {};
     const r = await query(
-      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note, upload, response, asset_id)
-       VALUES ($1,$2,$3,$4,$5,'',$6,$7,$8)
+      `INSERT INTO activity_signups (activity_id, user_id, name, dept, contact, note, upload, response, asset_id, status)
+       VALUES ($1,$2,$3,$4,$5,'',$6,$7,$8,'pending')
        ON CONFLICT (user_id, activity_id) DO NOTHING RETURNING id`,
       [id, req.session.userId, snap.name, snap.dept, (casted.contact || '').trim(), JSON.stringify(upload), JSON.stringify(response), assetId || null]);
     if (!r.rows.length) {
@@ -323,16 +323,16 @@ router.post('/:id/signup', authRequired, async (req, res) => {
     const u = await query('SELECT open_id FROM users WHERE id=$1', [req.session.userId]);
     await notifyAct(req.session.userId, u.rows[0] && u.rows[0].open_id, {
       type: 'signup', stage: 'signup', activityId: id,
-      title: '报名成功',
-      body: `活动「${a.rows[0].title}」报名成功，请准时参加。`,
-      card: { header: '报名成功', foot: '已登记，请准时参加。', when: a.rows[0].date_label || '', location: a.rows[0].location || '' },
+      title: '报名已提交',
+      body: `活动「${a.rows[0].title}」报名已提交，审核通过后将另行通知。`,
+      card: { header: '报名已提交', foot: '资料已收到，审核结果将通过飞书通知您。', when: a.rows[0].date_label || '', location: a.rows[0].location || '' },
     });
     // 新报名 → 管理员卡片（异步不阻塞报名响应）
     notifyAdminsOfSignup({
       activityId: id, activityTitle: a.rows[0].title,
       name: snap.name, dept: snap.dept, contact: (casted.contact || '').trim(),
     }).catch((e) => console.error('[activities.adminNotify]', e.message));
-    res.status(201).json(ok({ signedUp: true, repeated: false, message: '报名成功' }));
+    res.status(201).json(ok({ signedUp: true, repeated: false, message: '报名已提交，审核结果将通过飞书通知您' }));
   } catch (e) {
     console.error('[activities.signup]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));

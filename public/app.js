@@ -815,12 +815,16 @@ var AdminPage = () => {
         if (!acts.length) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>📋</span>暂无报名</div>"; return; }
         el.innerHTML = acts.map(function (g, gi) {
           return "<div class='adm-grp" + (gi === 0 ? "" : " closed") + "'><div class='adm-grp-h' onclick=\"window.__admToggleGrp&&window.__admToggleGrp(this)\"><span class='adm-grp-caret'>▾</span><span class='adm-grp-t'>" + esc(g.title) + "</span><span class='adm-grp-c'>" + g.total + " 人</span></div>" +
-            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:200px'>备用联系方式</th><th style='width:190px'>作品文件</th><th>自定义字段</th><th style='width:170px'>报名时间</th></tr></thead><tbody>" +
+            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th style='width:110px'>姓名</th><th style='width:180px'>部门</th><th style='width:200px'>备用联系方式</th><th style='width:190px'>作品文件</th><th>自定义字段</th><th style='width:170px'>报名时间</th><th style='width:110px'>状态</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
             g.signups.map(function (x) {
               var resp = x.response ? Object.keys(x.response).filter(function (k) { return k !== "__team"; }).map(function (k) { return esc(k) + "：" + esc(String(x.response[k] || "")); }).join("<br>") : "";
               if (x.response && x.response.__team) resp = (resp ? resp + "<br>" : "") + "组队：" + esc(x.response.__team);
               var up = (x.upload && x.upload.storage_url) ? "<a class='adm-link' href='" + esc(x.upload.storage_url) + "' target='_blank' rel='noopener'>" + esc(x.upload.filename || "文件") + "</a>" : "—";
-              return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + up + "</td><td>" + (resp || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>";
+              var st = x.status || "approved";
+              var ops = st === "pending"
+                ? "<button class='adm-btn ok' onclick=\"window.myAdminSignup(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminSignup(" + x.id + ",'rejected')\">✕ 驳回</button>"
+                : "<span class='adm-done'>已处理</span>";
+              return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + up + "</td><td>" + (resp || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td><td>" + pill(st) + "</td><td class='adm-ops'>" + ops + "</td></tr>";
             }).join("") +
             "</tbody></table></div></div></div>";
         }).join("");
@@ -846,6 +850,7 @@ var AdminPage = () => {
       window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
       window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
       window.myAdminReg = function (id, status) { patchJson("/api/admin/registrations/" + id, { status: status }).then(function () { loadRegs(); }); };
+      window.myAdminSignup = function (id, status) { patchJson("/api/admin/activities/signups/" + id, { status: status }).then(function () { loadSignups(); }); };
       window.myAdminWorksFilter = function (v) { worksFilter = v; renderWorks(); };
       window.myAdminRegsFilter = function (v) { regsFilter = v; renderRegs(); };
       window.myAdminRefreshWorks = function () { worksCache = []; updateBadges(); loadWorks(); };
@@ -1161,7 +1166,7 @@ var AdminPage = () => {
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminSignup", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
