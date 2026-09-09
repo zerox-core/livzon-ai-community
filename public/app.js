@@ -711,7 +711,7 @@ var AdminPage = () => {
           var acts = "";
           if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">✕ 驳回</button>";
           if (x.status === "approved") acts += "<button class='adm-btn' onclick=\"window.myAdminPub(" + x.id + "," + (!x.published) + ")\">" + (x.published ? "下架" : "上架") + "</button>";
-          return "<tr><td><b>" + esc(x.title) + "</b><span class='adm-kind'>" + esc(x.kind || "") + "</span></td><td>" + esc(x.author || "—") + "</td><td>" + pill(x.status) + "</td><td>" + (x.published ? "<span class='adm-pub on'>● 已发布</span>" : "<span class='adm-pub'>○ 未发布</span>") + "</td><td class='adm-ops'>" + (acts || "<span class='adm-done'>—</span>") + "</td></tr>";
+          return "<tr><td><b>" + esc(x.title) + "</b></td><td>" + esc(x.author || "—") + "</td><td>" + pill(x.status) + "</td><td>" + (x.published ? "<span class='adm-pub on'>● 已发布</span>" : "<span class='adm-pub'>○ 未发布</span>") + "</td><td class='adm-ops'>" + (acts || "<span class='adm-done'>—</span>") + "</td></tr>";
         }).join("") + "</tbody></table></div>";
     }
     function renderWorks() {
@@ -1128,12 +1128,18 @@ var AdminPage = () => {
     .adm-search{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;padding:7px 12px;width:220px;transition:border-color .15s;background:#fafbfc;}
     .adm-search:focus{outline:none;border-color:#2568d8;background:#fff;}
     .adm-tbl-wrap{overflow-x:auto;border:1px solid rgba(0,0,0,0.07);border-radius:10px;}
-    .adm-tbl-wrap .adm-table{margin:0;}
-    .adm-table td{vertical-align:middle;font-size:13px;}
+    .adm-tbl-wrap .adm-table{margin:0;width:100%;min-width:640px;border-collapse:collapse;background:#fff;}
+    .adm-table td{vertical-align:middle;font-size:13px;padding:12px 14px;border-bottom:1px solid rgba(0,0,0,0.05);color:rgba(0,0,0,0.82);}
+    .adm-table tbody tr:last-child td{border-bottom:none;}
+    .adm-table thead th:first-child{width:99%;}
+    .adm-table .mono{font-family:'JetBrains Mono',monospace;font-size:12px;color:#999;}
+    .adm-table .my-status{font-size:12px;font-weight:600;letter-spacing:.5px;}
+    .adm-table .my-status.pending{color:#c98a1b;}
+    .adm-table .my-status.approved{color:#2a9d63;}
+    .adm-table .my-status.rejected{color:#c94b4b;}
     .adm-table thead th{font-size:11px;letter-spacing:1.5px;color:#999;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.08);padding:10px 14px;background:#fafbfc;text-align:left;white-space:nowrap;}
     .adm-table tbody tr{transition:background .12s;}
     .adm-table tbody tr:hover{background:rgba(37,104,216,0.03);}
-    .adm-kind{font-size:10px;color:#2568d8;background:rgba(37,104,216,0.08);border-radius:4px;padding:1px 6px;margin-left:8px;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
     .adm-pub{font-size:12px;color:#bbb;} .adm-pub.on{color:#2a9d63;}
     .adm-ops{white-space:nowrap;}
     .adm-btn{font-family:inherit;font-size:12px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#1a1a1f;border-radius:6px;padding:5px 12px;margin-right:6px;cursor:pointer;transition:all .15s;}
