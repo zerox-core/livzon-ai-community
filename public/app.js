@@ -674,40 +674,123 @@ var AdminPage = () => {
     let cancelled = false;
     const esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); };
     const statusLabel = function (s) { return { pending: "待审核", approved: "已通过", rejected: "已驳回" }[s] || s; };
+    const pill = function (s) { return "<span class='my-status " + s + "'>" + statusLabel(s) + "</span>"; };
     const fmt = function (s) { if (!s) return "—"; var d = new Date(s); if (isNaN(d)) return String(s).slice(0, 16).replace("T", " "); var p = function (n) { return (n < 10 ? "0" : "") + n; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()); };
     function patchJson(url, body) {
       return fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
     }
+    // ===== 列表状态（筛选 + 搜索 + 徽标）=====
+    var worksCache = [], regsCache = [];
+    var worksFilter = "all", worksQ = "", regsFilter = "all", regsQ = "";
+    function setBadge(tab, n) {
+      var el = document.getElementById("adm-badge-" + tab);
+      if (!el) return;
+      el.textContent = n > 99 ? "99+" : String(n);
+      el.style.display = n > 0 ? "" : "none";
+    }
+    function updateBadges() {
+      setBadge("works", worksCache.filter(function (x) { return x.status === "pending"; }).length);
+      setBadge("regs", regsCache.filter(function (x) { return x.status === "pending"; }).length);
+    }
+    function chipsHtml(cur, pairs, fn) {
+      return pairs.map(function (p) {
+        return "<button class='adm-chip" + (cur === p[0] ? " on" : "") + "' onclick=\"window." + fn + "&&window." + fn + "('" + p[0] + "')\">" + p[1] + "<i>" + p[2] + "</i></button>";
+      }).join("");
+    }
+    function worksFiltered() {
+      var q = worksQ.trim().toLowerCase();
+      return worksCache
+        .filter(function (x) { return worksFilter === "all" || x.status === worksFilter; })
+        .filter(function (x) { if (!q) return true; return (String(x.title || "") + " " + String(x.kind || "") + " " + String(x.author || "")).toLowerCase().indexOf(q) > -1; });
+    }
+    function worksBodyHtml(flt) {
+      if (!flt.length) return "<div class='adm-empty'><span class='adm-empty-i'>🗂️</span>没有符合条件的作品</div>";
+      return "<div class='adm-note'>共 " + flt.length + " 件作品</div>" +
+        "<div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th>作品</th><th>作者</th><th>状态</th><th>发布</th><th>操作</th></tr></thead><tbody>" +
+        flt.map(function (x) {
+          var acts = "";
+          if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">✕ 驳回</button>";
+          if (x.status === "approved") acts += "<button class='adm-btn' onclick=\"window.myAdminPub(" + x.id + "," + (!x.published) + ")\">" + (x.published ? "下架" : "上架") + "</button>";
+          return "<tr><td><b>" + esc(x.title) + "</b><span class='adm-kind'>" + esc(x.kind || "") + "</span></td><td>" + esc(x.author || "—") + "</td><td>" + pill(x.status) + "</td><td>" + (x.published ? "<span class='adm-pub on'>● 已发布</span>" : "<span class='adm-pub'>○ 未发布</span>") + "</td><td class='adm-ops'>" + (acts || "<span class='adm-done'>—</span>") + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+    function renderWorks() {
+      var el = document.getElementById("adm-works"); if (!el) return;
+      var counts = { all: worksCache.length, pending: 0, approved: 0, rejected: 0 };
+      worksCache.forEach(function (x) { if (counts[x.status] != null) counts[x.status]++; });
+      el.innerHTML =
+        "<div class='adm-toolbar'>" +
+          "<div class='adm-chips'>" + chipsHtml(worksFilter, [["all", "全部", counts.all], ["pending", "待审核", counts.pending], ["approved", "已通过", counts.approved], ["rejected", "已驳回", counts.rejected]], "myAdminWorksFilter") + "</div>" +
+          "<div class='adm-tools'>" +
+            "<input id='adm-works-q' class='adm-search' placeholder='搜索作品 / 作者…' value='" + esc(worksQ) + "'>" +
+            "<button class='adm-btn ghost' title='刷新' onclick=\"window.myAdminRefreshWorks&&window.myAdminRefreshWorks()\">↻</button>" +
+          "</div>" +
+        "</div>" +
+        "<div id='adm-works-body'>" + worksBodyHtml(worksFiltered()) + "</div>";
+      var qEl = document.getElementById("adm-works-q");
+      if (qEl) qEl.oninput = function () {
+        worksQ = qEl.value;
+        var body = document.getElementById("adm-works-body");
+        if (body) body.innerHTML = worksBodyHtml(worksFiltered());
+      };
+    }
     function loadWorks() {
+      var el = document.getElementById("adm-works"); if (!el) return;
+      el.innerHTML = "<div class='adm-loading'>加载中…</div>";
       fetch("/api/admin/works").then(function (r) { return r.json(); }).then(function (j) {
-        var el = document.getElementById("adm-works"); if (!el || !j.ok) return;
-        var rows = (j.data && j.data.works) || [];
-        var pend = rows.filter(function (x) { return x.status === "pending"; }).length;
-        if (!rows.length) { el.innerHTML = "<div class='my-empty'>暂无作品</div>"; return; }
-        el.innerHTML = "<div class='adm-note'>共 " + rows.length + " 件，待审核 " + pend + " 件</div>" +
-          "<table class='my-table adm-table'><thead><tr><th>作品</th><th>作者</th><th>状态</th><th>发布</th><th>操作</th></tr></thead><tbody>" +
-          rows.map(function (x) {
-            var acts = "";
-            if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">驳回</button>";
-            if (x.status === "approved") acts += "<button class='adm-btn' onclick=\"window.myAdminPub(" + x.id + "," + (!x.published) + ")\">" + (x.published ? "下架" : "上架") + "</button>";
-            return "<tr><td>" + esc(x.title) + "<span class='adm-kind'>" + esc(x.kind || "") + "</span></td><td>" + esc(x.author || "—") + "</td><td><span class='my-status " + x.status + "'>" + statusLabel(x.status) + "</span></td><td>" + (x.published ? "已发布" : "未发布") + "</td><td class='adm-ops'>" + (acts || "—") + "</td></tr>";
-          }).join("") + "</tbody></table>";
-      }).catch(function () {});
+        if (cancelled) return;
+        if (!j.ok) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>⚠️</span>加载失败，点右上 ↻ 重试</div>"; return; }
+        worksCache = (j.data && j.data.works) || [];
+        renderWorks();
+        updateBadges();
+      }).catch(function () { if (!cancelled) el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>⚠️</span>网络异常，点右上 ↻ 重试</div>"; });
+    }
+    function regsFiltered() {
+      var q = regsQ.trim().toLowerCase();
+      return regsCache
+        .filter(function (x) { return regsFilter === "all" || x.status === regsFilter; })
+        .filter(function (x) { if (!q) return true; return (String(x.name || "") + " " + String(x.contact || "") + " " + String(x.activity || "")).toLowerCase().indexOf(q) > -1; });
+    }
+    function regsBodyHtml(flt) {
+      if (!flt.length) return "<div class='adm-empty'><span class='adm-empty-i'>📋</span>没有符合条件的报名</div>";
+      return "<div class='adm-note'>共 " + flt.length + " 条报名</div>" +
+        "<div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>联系方式</th><th>活动</th><th>状态</th><th>操作</th></tr></thead><tbody>" +
+        flt.map(function (x) {
+          var acts = x.status === "pending"
+            ? "<button class='adm-btn ok' onclick=\"window.myAdminReg(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminReg(" + x.id + ",'rejected')\">✕ 驳回</button>"
+            : "<span class='adm-done'>已处理</span>";
+          return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.department || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + esc(x.activity || "—") + "</td><td>" + pill(x.status) + "</td><td class='adm-ops'>" + acts + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+    function renderRegs() {
+      var el = document.getElementById("adm-regs"); if (!el) return;
+      var counts = { all: regsCache.length, pending: 0, approved: 0, rejected: 0 };
+      regsCache.forEach(function (x) { if (counts[x.status] != null) counts[x.status]++; });
+      el.innerHTML =
+        "<div class='adm-toolbar'>" +
+          "<div class='adm-chips'>" + chipsHtml(regsFilter, [["all", "全部", counts.all], ["pending", "待审核", counts.pending], ["approved", "已通过", counts.approved], ["rejected", "已驳回", counts.rejected]], "myAdminRegsFilter") + "</div>" +
+          "<div class='adm-tools'>" +
+            "<input id='adm-regs-q' class='adm-search' placeholder='搜索姓名 / 联系方式…' value='" + esc(regsQ) + "'>" +
+            "<button class='adm-btn ghost' title='刷新' onclick=\"window.myAdminRefreshRegs&&window.myAdminRefreshRegs()\">↻</button>" +
+          "</div>" +
+        "</div>" +
+        "<div id='adm-regs-body'>" + regsBodyHtml(regsFiltered()) + "</div>";
+      var qEl = document.getElementById("adm-regs-q");
+      if (qEl) qEl.oninput = function () {
+        regsQ = qEl.value;
+        var body = document.getElementById("adm-regs-body");
+        if (body) body.innerHTML = regsBodyHtml(regsFiltered());
+      };
     }
     function loadRegs() {
+      var el = document.getElementById("adm-regs"); if (!el) return;
+      el.dataset.loaded = "1";
       fetch("/api/admin/registrations").then(function (r) { return r.json(); }).then(function (j) {
-        var el = document.getElementById("adm-regs"); if (!el || !j.ok) return;
-        el.dataset.loaded = "1";
-        var rows = (j.data && j.data.registrations) || [];
-        if (!rows.length) { el.innerHTML = "<div class='my-empty'>暂无报名</div>"; return; }
-        el.innerHTML = "<div class='adm-note'>共 " + rows.length + " 条报名</div>" +
-          "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>联系方式</th><th>活动</th><th>状态</th><th>操作</th></tr></thead><tbody>" +
-          rows.map(function (x) {
-            var acts = x.status === "pending"
-              ? "<button class='adm-btn ok' onclick=\"window.myAdminReg(" + x.id + ",'approved')\">通过</button><button class='adm-btn no' onclick=\"window.myAdminReg(" + x.id + ",'rejected')\">驳回</button>"
-              : "<span class='adm-done'>已处理</span>";
-            return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.department || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + esc(x.activity || "—") + "</td><td><span class='my-status " + x.status + "'>" + statusLabel(x.status) + "</span></td><td class='adm-ops'>" + acts + "</td></tr>";
-          }).join("") + "</tbody></table>";
+        if (cancelled) return;
+        if (!j.ok) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>⚠️</span>加载失败，点右上 ↻ 重试</div>"; return; }
+        regsCache = (j.data && j.data.registrations) || [];
+        renderRegs();
+        updateBadges();
       }).catch(function () {});
     }
     function loadResv() {
@@ -715,12 +798,12 @@ var AdminPage = () => {
         var el = document.getElementById("adm-resv"); if (!el || !j.ok) return;
         el.dataset.loaded = "1";
         var acts = (j.data && j.data.activities) || [];
-        if (!acts.length) { el.innerHTML = "<div class='my-empty'>暂无预约</div>"; return; }
-        el.innerHTML = acts.map(function (g) {
-          return "<div class='adm-resv-grp'><div class='adm-resv-h'>" + esc(g.title) + " <span class='adm-resv-c'>" + g.total + " 人</span></div>" +
-            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>参与期待</th><th>预约时间</th></tr></thead><tbody>" +
-            g.reservations.map(function (x) { return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
-            "</tbody></table></div>";
+        if (!acts.length) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>📅</span>暂无预约</div>"; return; }
+        el.innerHTML = acts.map(function (g, gi) {
+          return "<div class='adm-grp" + (gi === 0 ? "" : " closed") + "'><div class='adm-grp-h' onclick=\"window.__admToggleGrp&&window.__admToggleGrp(this)\"><span class='adm-grp-caret'>▾</span><span class='adm-grp-t'>" + esc(g.title) + "</span><span class='adm-grp-c'>" + g.total + " 人</span></div>" +
+            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>参与期待</th><th>预约时间</th></tr></thead><tbody>" +
+            g.reservations.map(function (x) { return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.dept || "—") + "</td><td>" + esc(x.note || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>"; }).join("") +
+            "</tbody></table></div></div></div>";
         }).join("");
       }).catch(function () {});
     }
@@ -729,22 +812,23 @@ var AdminPage = () => {
         var el = document.getElementById("adm-sgn"); if (!el || !j.ok) return;
         el.dataset.loaded = "1";
         var acts = (j.data && j.data.activities) || [];
-        if (!acts.length) { el.innerHTML = "<div class='my-empty'>暂无报名</div>"; return; }
-        el.innerHTML = acts.map(function (g) {
-          return "<div class='adm-resv-grp'><div class='adm-resv-h'>" + esc(g.title) + " <span class='adm-resv-c'>" + g.total + " 人</span></div>" +
-            "<table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>备用联系方式</th><th>作品文件</th><th>自定义字段</th><th>报名时间</th></tr></thead><tbody>" +
+        if (!acts.length) { el.innerHTML = "<div class='adm-empty'><span class='adm-empty-i'>📋</span>暂无报名</div>"; return; }
+        el.innerHTML = acts.map(function (g, gi) {
+          return "<div class='adm-grp" + (gi === 0 ? "" : " closed") + "'><div class='adm-grp-h' onclick=\"window.__admToggleGrp&&window.__admToggleGrp(this)\"><span class='adm-grp-caret'>▾</span><span class='adm-grp-t'>" + esc(g.title) + "</span><span class='adm-grp-c'>" + g.total + " 人</span></div>" +
+            "<div class='adm-grp-b'><div class='adm-tbl-wrap'><table class='my-table adm-table'><thead><tr><th>姓名</th><th>部门</th><th>备用联系方式</th><th>作品文件</th><th>自定义字段</th><th>报名时间</th></tr></thead><tbody>" +
             g.signups.map(function (x) {
-              var resp = x.response ? Object.keys(x.response).filter(function (k) { return k !== '__team'; }).map(function (k) { return esc(k) + "：" + esc(String(x.response[k] || "")); }).join("<br>") : "";
+              var resp = x.response ? Object.keys(x.response).filter(function (k) { return k !== "__team"; }).map(function (k) { return esc(k) + "：" + esc(String(x.response[k] || "")); }).join("<br>") : "";
               if (x.response && x.response.__team) resp = (resp ? resp + "<br>" : "") + "组队：" + esc(x.response.__team);
               var up = (x.upload && x.upload.storage_url) ? "<a class='adm-link' href='" + esc(x.upload.storage_url) + "' target='_blank' rel='noopener'>" + esc(x.upload.filename || "文件") + "</a>" : "—";
-              return "<tr><td>" + esc(x.name) + "</td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + up + "</td><td style='max-width:260px'>" + (resp || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>";
+              return "<tr><td><b>" + esc(x.name) + "</b></td><td>" + esc(x.dept || "—") + "</td><td class='mono'>" + esc(x.contact || "—") + "</td><td>" + up + "</td><td style='max-width:260px'>" + (resp || "—") + "</td><td class='mono'>" + fmt(x.createdAt) + "</td></tr>";
             }).join("") +
-            "</tbody></table></div>";
+            "</tbody></table></div></div></div>";
         }).join("");
       }).catch(function () {});
     }
     function initAdmin() {
       loadWorks();
+      loadRegs();
       window.myAdminTab = function (t) {
         ["works", "regs", "resv", "sgn", "form", "sys"].forEach(function (k) {
           var el = document.getElementById("adm-" + k);
@@ -762,65 +846,151 @@ var AdminPage = () => {
       window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
       window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
       window.myAdminReg = function (id, status) { patchJson("/api/admin/registrations/" + id, { status: status }).then(function () { loadRegs(); }); };
+      window.myAdminWorksFilter = function (v) { worksFilter = v; renderWorks(); };
+      window.myAdminRegsFilter = function (v) { regsFilter = v; renderRegs(); };
+      window.myAdminRefreshWorks = function () { worksCache = []; updateBadges(); loadWorks(); };
+      window.myAdminRefreshRegs = function () { regsCache = []; updateBadges(); loadRegs(); };
+      window.__admToggleGrp = function (hd) {
+        if (!hd || !hd.parentNode) return;
+        hd.parentNode.classList.toggle("closed");
+      };
       window.myAdminScan = function () {
         var out = document.getElementById("adm-sys-out");
         var ahead = parseInt((document.getElementById("adm-ahead") || {}).value || "24", 10);
-        if (out) out.innerHTML = "<span class='adm-loading'>扫描中…</span>";
+        if (out) out.innerHTML = "<span class='adm-loading'>⏳ 扫描中…</span>";
         fetch("/api/admin/activities/scan-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aheadHours: ahead }) })
           .then(function (r) { return r.json(); }).then(function (j) {
             if (!out) return;
-            if (j.ok) { var d = j.data; out.innerHTML = "<div class='adm-scan-ok'>完成：命中 " + d.scanned + " 条 · 已发送 " + d.sent + " · 跳过 " + d.skipped + "（窗口 " + d.aheadHours + "h）。每条预约仅提醒一次。</div>"; }
-            else out.innerHTML = "<div class='adm-scan-err'>失败：" + esc((j.error && j.error.message) || "未知错误") + "</div>";
-          }).catch(function () { if (out) out.innerHTML = "<div class='adm-scan-err'>网络异常</div>"; });
+            if (j.ok) { var d = j.data; out.innerHTML = "<div class='adm-scan-ok'>✓ 扫描完成：命中 " + d.scanned + " 条 · 已发送 " + d.sent + " · 跳过 " + d.skipped + "（窗口 " + d.aheadHours + "h）。每条预约仅提醒一次。</div>"; }
+            else out.innerHTML = "<div class='adm-scan-err'>✕ 失败：" + esc((j.error && j.error.message) || "未知错误") + "</div>";
+          }).catch(function () { if (out) out.innerHTML = "<div class='adm-scan-err'>✕ 网络异常</div>"; });
       };
     }
-    // ===== 报名表单构建器（管理端按活动配置模板）=====
+    // ===== 报名表单构建器（双栏：左编辑 + 右实时预览）=====
     var formState = { activityId: '', profile: null };
     var AF_TYPES = ['text', 'textarea', 'select', 'radio', 'checkbox', 'number', 'date'];
+    var AF_TYPE_LB = { text: '文本', textarea: '多行文本', select: '下拉单选', radio: '单选', checkbox: '多选', number: '数字', date: '日期' };
+    var afSeq = 0;
+    function nextRowId() { return ++afSeq; }
     function afDefault() { return { contact: true, needUpload: false, deadline: '', team: { enabled: false, label: '组队情况', options: ['单人', '2-3人'] }, rules: '', fields: [] }; }
+    function afRowHtml(f, id) {
+      return "<div class='af-row' data-i='" + id + "'>" +
+        "<div class='af-frow-top'>" +
+          "<span class='af-frow-i'>#</span>" +
+          "<input type='hidden' class='af-key' value='" + esc(f.key || '') + "'>" +
+          "<input class='af-lab' maxlength='100' value='" + esc(f.label || '') + "' placeholder='字段名（如：作品简介）'>" +
+          "<select class='af-type'>" + AF_TYPES.map(function (t) { return "<option value='" + t + "'" + (t === f.type ? " selected" : "") + ">" + (AF_TYPE_LB[t] || t) + "</option>"; }).join('') + "</select>" +
+          "<label class='af-req-w'><input type='checkbox' class='af-req'" + (f.required ? ' checked' : '') + ">必填</label>" +
+          "<span class='af-frow-ops'>" +
+            "<button type='button' class='af-mini' title='上移' onclick=\"window.myAdminFormMoveField&&window.myAdminFormMoveField(" + id + ",-1)\">↑</button>" +
+            "<button type='button' class='af-mini' title='下移' onclick=\"window.myAdminFormMoveField&&window.myAdminFormMoveField(" + id + ",1)\">↓</button>" +
+            "<button type='button' class='af-mini del' title='删除' onclick=\"window.myAdminFormDelField&&window.myAdminFormDelField(" + id + ")\">✕</button>" +
+          "</span>" +
+        "</div>" +
+        "<div class='af-frow-sub'><label>选项</label><input class='af-opt' maxlength='200' value='" + esc((f.options || []).join(',')) + "' placeholder='选项用逗号分隔（下拉 / 单选 / 多选需要）'></div>" +
+      "</div>";
+    }
+    function afRenumber() {
+      var list = document.getElementById('af-list'); if (!list) return;
+      Array.prototype.forEach.call(list.querySelectorAll('.af-row'), function (r, k) {
+        var n = r.querySelector('.af-frow-i');
+        if (n) n.textContent = String(k + 1);
+      });
+    }
+    function afPreview() {
+      var pv = document.getElementById('af-preview'); if (!pv) return;
+      var list = document.getElementById('af-list');
+      var rows = list ? Array.prototype.slice.call(list.querySelectorAll('.af-row')) : [];
+      var contact = !!((document.getElementById('af-contact') || {}).checked);
+      var upload = !!((document.getElementById('af-upload') || {}).checked);
+      var team = !!((document.getElementById('af-team') || {}).checked);
+      var teamLabel = ((document.getElementById('af-team-label') || {}).value || '组队情况');
+      var teamOpts = ((document.getElementById('af-team-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+      var deadline = ((document.getElementById('af-deadline') || {}).value || '').trim();
+      var rulesHtml = (document.getElementById('af-rules') || {}).innerHTML || '';
+      var h = "<div class='pv-hd'>报名表单 · 实时预览</div>";
+      if (deadline) h += "<div class='pv-deadline'>⏰ 报名 / 提交截止：" + esc(deadline) + "</div>";
+      h += "<div class='pv-lab'>参赛人姓名 <span class='pv-req'>*</span><div class='pv-fake'></div></div>";
+      h += "<div class='pv-lab'>所在部门 <span class='pv-req'>*</span><div class='pv-fake'></div></div>";
+      if (contact) h += "<div class='pv-lab'>备用联系方式 <span class='pv-req'>*</span><div class='pv-fake'></div></div>";
+      rows.forEach(function (row) {
+        var lab = ((row.querySelector('.af-lab') || {}).value || '').trim() || '（未命名字段）';
+        var type = ((row.querySelector('.af-type') || {}).value) || 'text';
+        var req = !!((row.querySelector('.af-req') || {}).checked);
+        var opts = ((row.querySelector('.af-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+        h += "<div class='pv-lab'>" + esc(lab) + (req ? " <span class='pv-req'>*</span>" : "") + "<div class='pv-fake'>";
+        if (type === 'textarea') h += "<div class='pv-fake pv-fake-ta'></div>";
+        else if (type === 'select') h += opts.length ? "<span class='pv-hint'>▾ " + esc(opts[0]) + "</span>" : "<span class='pv-hint'>▾ 选项待填</span>";
+        else if (type === 'radio') h += opts.length ? opts.map(function (o) { return "<span class='pv-chip'>○ " + esc(o) + "</span>"; }).join("") : "<span class='pv-hint'>选项待填</span>";
+        else if (type === 'checkbox') h += opts.length ? opts.map(function (o) { return "<span class='pv-chip'>☑ " + esc(o) + "</span>"; }).join("") : "<span class='pv-hint'>选项待填</span>";
+        else if (type === 'date') h += "<span class='pv-hint'>📅 日期选择</span>";
+        else if (type === 'number') h += "<span class='pv-hint'># 数字输入</span>";
+        h += "</div></div>";
+      });
+      if (team) h += "<div class='pv-lab'>" + esc(teamLabel) + " <span class='pv-req'>*</span><div class='pv-fake'>" + (teamOpts.length ? teamOpts.map(function (o) { return "<span class='pv-chip'>○ " + esc(o) + "</span>"; }).join("") : "<span class='pv-hint'>选项待填</span>") + "</div></div>";
+      if (upload) h += "<div class='pv-lab'>作品文件 <span class='pv-req'>*</span><div class='pv-drop'>📁 拖拽或点击上传作品文件</div></div>";
+      if (rulesHtml) h += "<div class='pv-rules'>" + rulesHtml + "</div>";
+      h += "<div class='pv-submit'>提交报名</div>";
+      pv.innerHTML = h;
+    }
     function renderFormEditor(p) {
       p = p || afDefault();
       var el = document.getElementById('adm-form-editor'); if (!el) return;
       el.innerHTML =
-        "<div class='af-mod'>" +
-          "<label><input type='checkbox' id='af-contact'" + (p.contact ? ' checked' : '') + "> 需要备用联系方式</label>" +
-          "<label><input type='checkbox' id='af-upload'" + (p.needUpload ? ' checked' : '') + "> 需要作品文件上传</label>" +
-        "</div>" +
-        "<div class='af-row'><label class='af-lab'>报名/提交截止</label><input id='af-deadline' maxlength='60' value='" + esc(p.deadline || '') + "' placeholder='2026-09-20 18:00'></div>" +
-        "<div class='af-mod'>" +
-          "<label><input type='checkbox' id='af-team'" + (p.team.enabled ? ' checked' : '') + "> 组队信息</label>" +
-          "<input id='af-team-label' maxlength='60' value='" + esc(p.team.label || '组队情况') + "' style='width:180px' title='组队字段名'>" +
-          "<input id='af-team-opt' maxlength='200' value='" + esc((p.team.options || []).join(',')) + "' style='width:260px' placeholder='组队选项,逗号分隔' title='组队选项'>" +
-        "</div>" +
-        "<div class='af-rte-lab'>活动规则 / 要求（富文本）</div>" +
-        "<div class='af-rte-bar'><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"bold\")'>加粗</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"italic\")'>斜体</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"underline\")'>下划线</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"insertUnorderedList\")'>列表</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"createLink\")'>链接</button></div>" +
-        "<div id='af-rules' contenteditable='true' class='af-rte'>" + (p.rules || '') + "</div>" +
-        "<div class='af-fields-h'>报名字段 <button class='adm-btn ok' onclick='window.myAdminFormAddField&&window.myAdminFormAddField()'>＋ 添加字段</button></div>" +
-        "<div id='af-list'>" +
-          (p.fields || []).map(function (f, i) {
-            return "<div class='af-row' data-i='" + i + "'>" +
-              "<input type='hidden' class='af-key' value='" + esc(f.key || '') + "'>" +
-              "<input class='af-lab' maxlength='100' value='" + esc(f.label || '') + "' placeholder='字段名'>" +
-              "<select class='af-type'>" + AF_TYPES.map(function (t) { return "<option value='" + t + "'" + (t === f.type ? ' selected' : '') + ">" + t + "</option>"; }).join('') + "</select>" +
-              "<label class='af-req-w'><input type='checkbox' class='af-req'" + (f.required ? ' checked' : '') + ">必填</label>" +
-              "<input class='af-opt' maxlength='200' value='" + esc((f.options || []).join(',')) + "' placeholder='选项,逗号分隔'>" +
-              "<button class='adm-btn no' onclick=\"window.myAdminFormDelField&&window.myAdminFormDelField(" + i + ")\">删</button>" +
-              "</div>";
-          }).join('') +
-        "</div>" +
-        "<div class='af-save'><button class='adm-btn primary' onclick='window.myAdminFormSave&&window.myAdminFormSave()'>保存报名模板</button><span id='af-msg' class='af-msg'></span></div>";
+        "<div class='af-grid'>" +
+          "<div class='af-main'>" +
+            "<div class='af-card'>" +
+              "<div class='af-card-h'><span class='af-card-t'>① 基础设置</span></div>" +
+              "<div class='af-sw-row'>" +
+                "<label class='af-sw'><input type='checkbox' id='af-contact'" + (p.contact ? ' checked' : '') + "><span class='af-sw-ui'></span><span class='af-sw-lb'>需要备用联系方式</span></label>" +
+                "<label class='af-sw'><input type='checkbox' id='af-upload'" + (p.needUpload ? ' checked' : '') + "><span class='af-sw-ui'></span><span class='af-sw-lb'>需要作品文件上传</span></label>" +
+                "<label class='af-sw'><input type='checkbox' id='af-team'" + (p.team.enabled ? ' checked' : '') + "><span class='af-sw-ui'></span><span class='af-sw-lb'>收集组队信息</span></label>" +
+              "</div>" +
+              "<div class='af-field'><label class='af-flab'>报名 / 提交截止</label><input id='af-deadline' class='af-inp' maxlength='60' value='" + esc(p.deadline || '') + "' placeholder='例如 2026-09-20 18:00'></div>" +
+              "<div class='af-teambox" + (p.team.enabled ? '' : ' af-teambox-off') + "'>" +
+                "<div class='af-field'><label class='af-flab'>组队字段名</label><input id='af-team-label' class='af-inp' maxlength='60' value='" + esc(p.team.label || '组队情况') + "'></div>" +
+                "<div class='af-field'><label class='af-flab'>组队选项（逗号分隔）</label><input id='af-team-opt' class='af-inp' maxlength='200' value='" + esc((p.team.options || []).join(',')) + "' placeholder='单人,2-3人'></div>" +
+              "</div>" +
+            "</div>" +
+            "<div class='af-card'>" +
+              "<div class='af-card-h'><span class='af-card-t'>② 活动规则 / 要求</span><span class='af-card-s'>富文本，展示在报名表上方</span></div>" +
+              "<div class='af-rte-bar'><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"bold\")'><b>B</b> 加粗</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"italic\")'><i>I</i> 斜体</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"underline\")'><u>U</u> 下划线</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"insertUnorderedList\")'>• 列表</button><button type='button' onclick='window.myAdminFmt&&window.myAdminFmt(\"createLink\")'>🔗 链接</button></div>" +
+              "<div id='af-rules' contenteditable='true' class='af-rte'>" + (p.rules || '') + "</div>" +
+            "</div>" +
+            "<div class='af-card'>" +
+              "<div class='af-card-h'><span class='af-card-t'>③ 报名字段</span><button class='adm-btn ok' onclick='window.myAdminFormAddField&&window.myAdminFormAddField()'>＋ 添加字段</button></div>" +
+              "<div id='af-list'>" + (p.fields || []).map(function (f) { return afRowHtml(f, nextRowId()); }).join('') + "</div>" +
+              "<div class='af-hint-row'>提示：字段按上下顺序展示在报名表中，可用 ↑↓ 调整；选项仅下拉 / 单选 / 多选类型需要填写。</div>" +
+            "</div>" +
+            "<div class='af-savebar'><button class='adm-btn primary big' onclick='window.myAdminFormSave&&window.myAdminFormSave()'>保存报名模板</button><span id='af-msg' class='af-msg'></span></div>" +
+          "</div>" +
+          "<div class='af-side'><div class='af-prev-card'><div id='af-preview'></div></div></div>" +
+        "</div>";
       formState.profile = p;
+      afRenumber();
+      if (!el.dataset.pvwired) {
+        el.dataset.pvwired = '1';
+        el.addEventListener('input', afPreview);
+        el.addEventListener('change', afPreview);
+      }
+      afPreview();
     }
     function wrapFormEditor() {
-      // 活动下拉 + 编辑器容器
       var el = document.getElementById('adm-form'); if (!el) return;
       if (el.dataset.wrapped) return; el.dataset.wrapped = '1';
-      el.innerHTML = "<div class='af-select-row'><label>选择正式活动（current/upcoming）：</label><select id='af-select'></select><button class='adm-btn' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>加载</button></div><div id='adm-form-editor'><div class='adm-loading'>请选择活动后加载</div></div>";
+      el.innerHTML = "<div class='af-pick-card'>" +
+          "<div class='af-pick-ico'>📝</div>" +
+          "<div class='af-pick-b'><div class='af-pick-t'>选择要配置的正式活动</div><div class='af-pick-d'>报名表单模板按活动独立保存，保存后站点自动生效。</div></div>" +
+          "<select id='af-select'></select>" +
+          "<button class='adm-btn primary' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>加载模板</button>" +
+        "</div>" +
+        "<div id='adm-form-editor'><div class='adm-loading'>请选择活动后加载</div></div>";
       fetch('/api/activities').then(function (r) { return r.json(); }).then(function (j) {
         if (!j.ok || !j.data) return;
         var sel = document.getElementById('af-select'); if (!sel) return;
         var all = (j.data.current || []).concat(j.data.upcoming || []);
         sel.innerHTML = "<option value=''>— 选择活动 —</option>" + all.map(function (a) { return "<option value='" + esc(a.id) + "'>" + esc(a.name) + "</option>"; }).join('');
+        sel.onchange = function () { window.myAdminFormLoad(sel.value); };
       }).catch(function () {});
     }
     function loadFormEditor() {
@@ -839,7 +1009,11 @@ var AdminPage = () => {
       Array.prototype.forEach.call(list.querySelectorAll('.af-row'), function (row) {
         var key = ((row.querySelector('.af-key') || {}).value || '').trim();
         if (!key) key = ((row.querySelector('.af-lab') || {}).value || '').trim().replace(/\s+/g, '_');
-        if (!/^[A-Za-z0-9_]+$/.test(key) || used.has(key)) return;
+        // 中文标签派生不出合法 key（旧逻辑会静默丢行）→ 自动生成 f1/f2…；空标签行保留进 P0-1 校验
+        if (!/^[A-Za-z0-9_]+$/.test(key) || used.has(key)) {
+          var n = 1; while (used.has('f' + n)) n++;
+          key = 'f' + n;
+        }
         used.add(key);
         var type = (row.querySelector('.af-type') || {}).value || 'text';
         var opts = ((row.querySelector('.af-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 20);
@@ -858,14 +1032,25 @@ var AdminPage = () => {
     window.myAdminFormLoad = function (id) { formState.activityId = id; loadFormEditor(); };
     window.myAdminFormAddField = function () {
       var list = document.getElementById('af-list'); if (!list) return;
-      var i = list.querySelectorAll('.af-row').length;
-      list.insertAdjacentHTML('beforeend', "<div class='af-row' data-i='" + i + "'><input type='hidden' class='af-key' value=''><input class='af-lab' maxlength='100' placeholder='字段名'><select class='af-type'>" + AF_TYPES.map(function (t) { return "<option value='" + t + "'>" + t + "</option>"; }).join('') + "</select><label class='af-req-w'><input type='checkbox' class='af-req'>必填</label><input class='af-opt' maxlength='200' placeholder='选项,逗号分隔'><button class='adm-btn no' onclick=\"window.myAdminFormDelField&&window.myAdminFormDelField(" + i + ")\">删</button></div>");
+      list.insertAdjacentHTML('beforeend', afRowHtml({ key: '', label: '', type: 'text', required: false, options: [] }, nextRowId()));
+      afRenumber(); afPreview();
     };
-    window.myAdminFormDelField = function (i) {
+    window.myAdminFormDelField = function (id) {
+      var list = document.getElementById('af-list'); if (!list) return;
+      var row = Array.prototype.slice.call(list.querySelectorAll('.af-row')).filter(function (r) { return +r.getAttribute('data-i') === +id; })[0];
+      if (row) row.parentNode.removeChild(row);
+      afRenumber(); afPreview();
+    };
+    window.myAdminFormMoveField = function (id, dir) {
       var list = document.getElementById('af-list'); if (!list) return;
       var rows = Array.prototype.slice.call(list.querySelectorAll('.af-row'));
-      var row = rows.filter(function (r) { return +r.getAttribute('data-i') === +i; })[0];
-      if (row) row.parentNode.removeChild(row);
+      var k = -1;
+      rows.forEach(function (r, idx) { if (+r.getAttribute('data-i') === +id) k = idx; });
+      var j = k + dir;
+      if (k < 0 || j < 0 || j >= rows.length) return;
+      if (dir < 0) list.insertBefore(rows[k], rows[j]);
+      else list.insertBefore(rows[j], rows[k]);
+      afRenumber(); afPreview();
     };
     window.myAdminFormSave = function () {
       var id = formState.activityId || (document.getElementById('af-select') || {}).value;
@@ -874,22 +1059,24 @@ var AdminPage = () => {
       var profile = afCollect(); if (!profile) return;
       // P0-1 根修：字段名（label）为空不允许保存——杜绝 field_a/b/c 直出报名表的脏数据再产生
       var bad = (profile.fields || []).filter(function (f) { return !String(f.label || '').trim(); });
-      if (bad.length) { msg.textContent = '保存失败：有 ' + bad.length + ' 个字段未填「字段名」，请补齐或删除该行后再保存'; return; }
+      if (bad.length) { msg.textContent = '保存失败：有 ' + bad.length + ' 个字段未填「字段名」，请补齐或删除该行后再保存'; msg.className = 'af-msg err'; return; }
       fetch('/api/admin/activities/' + encodeURIComponent(id) + '/signup-form', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: profile }) })
         .then(function (r) { return r.json(); }).then(function (j) {
+          msg.className = 'af-msg' + (j.ok ? '' : ' err');
           msg.textContent = j.ok ? '✓ 已保存（站点自动生效）' : ('保存失败：' + ((j.error && j.error.message) || '未知错误'));
-        }).catch(function () { msg.textContent = '保存失败：网络异常'; });
+        }).catch(function () { msg.textContent = '保存失败：网络异常'; msg.className = 'af-msg err'; });
     };
     window.myAdminFmt = function (cmd) {
       var r = document.getElementById('af-rules'); if (!r) return; r.focus();
       if (cmd === 'createLink') { var u = prompt('链接地址'); if (u) document.execCommand('createLink', false, u); }
       else document.execCommand(cmd, false, null);
+      afPreview();
     };
     var h = "<div class='my-sec my-admin'>" +
       "<div class='my-sechead'><span class='t'>管理控制台</span><span class='e'>ADMIN CONSOLE · 仅管理员可见</span></div>" +
       "<div class='adm-tabs'>" +
-        "<button class='adm-tab on' onclick=\"window.myAdminTab&&window.myAdminTab('works')\">作品审核</button>" +
-        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核</button>" +
+        "<button class='adm-tab on' onclick=\"window.myAdminTab&&window.myAdminTab('works')\">作品审核<span class='adm-badge' id='adm-badge-works' style='display:none'></span></button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('regs')\">报名审核<span class='adm-badge' id='adm-badge-regs' style='display:none'></span></button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('resv')\">预约名单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sgn')\">报名名单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('form')\">报名表单</button>" +
@@ -901,70 +1088,152 @@ var AdminPage = () => {
       "<div id='adm-sgn' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-form' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-sys' class='adm-panel' style='display:none'>" +
-        "<div class='adm-sys-row'><div><div class='adm-sys-t'>手动触发活动开始提醒扫描</div>" +
-        "<div class='adm-sys-d'>扫描「即将开始且未提醒」的预约并向预约人推送飞书 + 站内通知；正常情况每小时自动跑，这里用于测试/应急。</div></div>" +
-        "<div style='display:flex;gap:8px;align-items:center;flex:0 0 auto'><input id='adm-ahead' class='adm-input' type='number' min='1' max='720' value='24' title='提前小时数'><button class='adm-btn primary' onclick=\"window.myAdminScan&&window.myAdminScan()\">立即扫描</button></div></div>" +
+        "<div class='adm-sys-card'>" +
+          "<div class='adm-sys-ico'>🔔</div>" +
+          "<div class='adm-sys-b'><div class='adm-sys-t'>手动触发活动开始提醒扫描</div>" +
+          "<div class='adm-sys-d'>扫描「即将开始且未提醒」的预约并向预约人推送飞书 + 站内通知；正常情况每小时自动跑，这里用于测试 / 应急。</div></div>" +
+          "<div class='adm-sys-act'><span class='adm-sys-lb'>提前窗口</span><input id='adm-ahead' class='adm-input' type='number' min='1' max='720' value='24' title='提前小时数'><span class='adm-sys-lb'>小时</span><button class='adm-btn primary' onclick=\"window.myAdminScan&&window.myAdminScan()\">立即扫描</button></div>" +
+        "</div>" +
         "<div id='adm-sys-out' class='adm-sys-out'></div>" +
       "</div>" +
     "</div>";
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminFormLoad", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
     React.createElement("style", null, `
-    .my-admin{border:1px solid rgba(37,104,216,0.25);background:#fff;border-radius:12px;padding:0 0 20px;}
+    .my-admin{border:1px solid rgba(37,104,216,0.25);background:#fff;border-radius:12px;padding:0 0 24px;}
     .my-admin .my-sechead{border-bottom:1px solid rgba(0,0,0,0.06);}
     .my-admin .my-sechead .e{color:#c98a1b;}
-    .adm-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:14px 20px 0;}
-    .adm-tab{font-family:inherit;font-size:13px;letter-spacing:1px;border:1px solid rgba(0,0,0,0.1);background:#f6f7f9;color:#666;padding:8px 16px;border-radius:8px 8px 0 0;cursor:pointer;transition:all .18s;}
+    .adm-tabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 20px 0;border-bottom:1px solid rgba(0,0,0,0.06);}
+    .adm-tab{position:relative;font-family:inherit;font-size:13px;letter-spacing:1px;border:1px solid transparent;border-bottom:none;background:transparent;color:#8a8f98;padding:9px 16px 10px;border-radius:8px 8px 0 0;cursor:pointer;transition:all .18s;}
     .adm-tab:hover{color:#1a1a1f;}
-    .adm-tab.on{background:#1a1a1f;color:#fff;border-color:#1a1a1f;}
-    .adm-panel{padding:18px 20px 4px;}
-    .adm-loading{color:#999;font-size:13px;padding:16px 0;}
-    .adm-note{font-size:12px;color:#999;margin-bottom:12px;letter-spacing:1px;}
-    .adm-table td{vertical-align:middle;}
-    .adm-kind{font-size:10px;color:#2568d8;background:rgba(37,104,216,0.08);border-radius:4px;padding:1px 6px;margin-left:8px;font-family:'JetBrains Mono',monospace;}
+    .adm-tab.on{color:#1a1a1f;font-weight:600;}
+    .adm-tab.on:after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:#1a1a1f;border-radius:2px;}
+    .adm-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:#e5484d;color:#fff;font-size:11px;line-height:18px;text-align:center;font-family:'JetBrains Mono',monospace;vertical-align:1px;}
+    .adm-panel{padding:20px 24px 8px;}
+    .adm-loading{color:#999;font-size:13px;padding:18px 4px;}
+    .adm-note{font-size:12px;color:#999;margin:0 4px 10px;letter-spacing:1px;}
+    .adm-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+    .adm-chips{display:flex;gap:6px;flex-wrap:wrap;}
+    .adm-chip{font-family:inherit;font-size:12px;letter-spacing:.5px;border:1px solid rgba(0,0,0,0.12);background:#fff;color:#666;padding:5px 12px;border-radius:999px;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+    .adm-chip i{font-style:normal;font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(0,0,0,0.06);border-radius:8px;padding:0 6px;line-height:16px;}
+    .adm-chip:hover{border-color:#1a1a1f;color:#1a1a1f;}
+    .adm-chip.on{background:#1a1a1f;border-color:#1a1a1f;color:#fff;}
+    .adm-chip.on i{background:rgba(255,255,255,0.18);}
+    .adm-tools{display:flex;gap:8px;align-items:center;}
+    .adm-search{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;padding:7px 12px;width:220px;transition:border-color .15s;background:#fafbfc;}
+    .adm-search:focus{outline:none;border-color:#2568d8;background:#fff;}
+    .adm-tbl-wrap{overflow-x:auto;border:1px solid rgba(0,0,0,0.07);border-radius:10px;}
+    .adm-tbl-wrap .adm-table{margin:0;}
+    .adm-table td{vertical-align:middle;font-size:13px;}
+    .adm-table thead th{font-size:11px;letter-spacing:1.5px;color:#999;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.08);padding:10px 14px;background:#fafbfc;text-align:left;white-space:nowrap;}
+    .adm-table tbody tr{transition:background .12s;}
+    .adm-table tbody tr:hover{background:rgba(37,104,216,0.03);}
+    .adm-kind{font-size:10px;color:#2568d8;background:rgba(37,104,216,0.08);border-radius:4px;padding:1px 6px;margin-left:8px;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+    .adm-pub{font-size:12px;color:#bbb;} .adm-pub.on{color:#2a9d63;}
     .adm-ops{white-space:nowrap;}
-    .adm-btn{font-family:inherit;font-size:12px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#1a1a1f;border-radius:6px;padding:4px 12px;margin-right:6px;cursor:pointer;transition:all .15s;}
+    .adm-btn{font-family:inherit;font-size:12px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#1a1a1f;border-radius:6px;padding:5px 12px;margin-right:6px;cursor:pointer;transition:all .15s;}
     .adm-btn:hover{border-color:#1a1a1f;}
     .adm-btn.ok{border-color:#2a9d63;color:#2a9d63;} .adm-btn.ok:hover{background:#2a9d63;color:#fff;}
     .adm-btn.no{border-color:#c94b4b;color:#c94b4b;} .adm-btn.no:hover{background:#c94b4b;color:#fff;}
     .adm-btn.primary{background:#1a1a1f;color:#fff;border-color:#1a1a1f;} .adm-btn.primary:hover{background:#000;}
+    .adm-btn.primary.big{font-size:14px;padding:10px 28px;border-radius:8px;letter-spacing:1px;}
+    .adm-btn.ghost{border-color:rgba(0,0,0,0.12);color:#666;padding:6px 10px;margin-right:0;} .adm-btn.ghost:hover{border-color:#1a1a1f;color:#1a1a1f;}
     .adm-done{font-size:12px;color:#bbb;}
+    .adm-empty{padding:36px 0;text-align:center;color:#999;font-size:13px;letter-spacing:1px;}
+    .adm-empty-i{display:block;font-size:28px;margin-bottom:8px;opacity:.6;}
     .adm-input{width:64px;font-family:'JetBrains Mono',monospace;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;text-align:center;}
-    .adm-sys-row{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#fafbfc;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:16px 18px;}
-    .adm-sys-t{font-size:14px;font-weight:600;color:#1a1a1f;} .adm-sys-d{font-size:12px;color:#999;margin-top:4px;line-height:1.6;}
+    .adm-grp{border:1px solid rgba(0,0,0,0.08);border-radius:10px;margin-bottom:14px;overflow:hidden;}
+    .adm-grp-h{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fafbfc;cursor:pointer;user-select:none;transition:background .15s;}
+    .adm-grp-h:hover{background:#f1f4f8;}
+    .adm-grp-caret{color:#999;font-size:11px;transition:transform .2s;width:14px;}
+    .adm-grp.closed .adm-grp-caret{transform:rotate(-90deg);}
+    .adm-grp-t{font-size:14px;font-weight:600;color:#1a1a1f;}
+    .adm-grp-c{font-size:12px;color:#2568d8;font-family:'JetBrains Mono',monospace;background:rgba(37,104,216,0.08);border-radius:10px;padding:1px 10px;}
+    .adm-grp-b{border-top:1px solid rgba(0,0,0,0.06);}
+    .adm-grp.closed .adm-grp-b{display:none;}
+    .adm-sys-card{display:flex;justify-content:space-between;align-items:center;gap:18px;background:linear-gradient(135deg,#fafbfc,#f4f7fb);border:1px solid rgba(0,0,0,0.07);border-radius:12px;padding:18px 20px;}
+    .adm-sys-ico{width:44px;height:44px;border-radius:12px;background:#fff;border:1px solid rgba(0,0,0,0.07);display:flex;align-items:center;justify-content:center;font-size:20px;flex:0 0 auto;}
+    .adm-sys-b{flex:1;}
+    .adm-sys-t{font-size:14px;font-weight:600;color:#1a1a1f;} .adm-sys-d{font-size:12px;color:#999;margin-top:4px;line-height:1.7;}
+    .adm-sys-act{display:flex;gap:8px;align-items:center;flex:0 0 auto;}
+    .adm-sys-lb{font-size:12px;color:#999;}
     .adm-sys-out{margin-top:14px;font-size:13px;}
     .adm-scan-ok{color:#2a9d63;background:rgba(90,200,140,0.1);border-radius:8px;padding:10px 14px;}
     .adm-scan-err{color:#c94b4b;background:rgba(255,90,90,0.1);border-radius:8px;padding:10px 14px;}
-    .adm-resv-grp{margin-bottom:22px;}
-    .adm-resv-h{font-size:14px;font-weight:600;color:#1a1a1f;margin-bottom:8px;} .adm-resv-c{font-size:12px;color:#2568d8;font-family:'JetBrains Mono',monospace;margin-left:6px;}
-    @media(max-width:820px){.adm-sys-row{flex-direction:column;align-items:flex-start;}}
-    .af-select-row{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:#666;}
-    #af-select{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:7px 10px;min-width:260px;}
-    .af-mod{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:#333;}
-    .af-mod input[type=text]{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
-    .af-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
-    .af-row .af-lab{width:150px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
-    .af-row .af-type{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
-    .af-row .af-opt{width:220px;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;}
-    .af-req-w{font-size:12px;color:#666;display:inline-flex;gap:4px;align-items:center;}
-    .af-rte-lab{font-size:13px;font-weight:600;color:#1a1a1f;margin:12px 0 6px;}
-    .af-rte-bar{display:flex;gap:6px;margin-bottom:6px;}
-    .af-rte-bar button{font-family:inherit;font-size:12px;border:1px solid #ccc;background:#f6f7f9;border-radius:4px;padding:3px 10px;cursor:pointer;}
-    .af-rte{min-height:120px;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:14px;line-height:1.8;background:#fff;}
-    .af-rte:focus{outline:none;border-color:#2568d8;}
-    .af-fields-h{font-size:13px;font-weight:600;color:#1a1a1f;margin:16px 0 8px;display:flex;gap:10px;align-items:center;}
-    .af-save{margin-top:18px;display:flex;gap:12px;align-items:center;}
-    .af-msg{font-size:13px;color:#2a9d63;}
     .adm-link{color:#2568d8;text-decoration:none;} .adm-link:hover{text-decoration:underline;}
+    .af-pick-card{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#fafbfc,#f4f7fb);border:1px solid rgba(0,0,0,0.07);border-radius:12px;padding:16px 18px;margin-bottom:16px;}
+    .af-pick-ico{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid rgba(0,0,0,0.07);display:flex;align-items:center;justify-content:center;font-size:18px;}
+    .af-pick-b{flex:1;min-width:220px;}
+    .af-pick-t{font-size:14px;font-weight:600;color:#1a1a1f;} .af-pick-d{font-size:12px;color:#999;margin-top:3px;line-height:1.6;}
+    #af-select{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:8px 12px;min-width:240px;background:#fff;}
+    .af-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start;}
+    .af-main{min-width:0;}
+    .af-card{border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:16px 18px;margin-bottom:16px;background:#fff;}
+    .af-card-h{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;}
+    .af-card-t{font-size:14px;font-weight:700;color:#1a1a1f;letter-spacing:.5px;}
+    .af-card-s{font-size:11px;color:#bbb;letter-spacing:.5px;}
+    .af-sw-row{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px;}
+    .af-sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#333;}
+    .af-sw input{display:none;}
+    .af-sw-ui{width:34px;height:20px;border-radius:10px;background:#d7dade;position:relative;transition:background .18s;flex:0 0 auto;}
+    .af-sw-ui:after{content:'';position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .18s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+    .af-sw input:checked + .af-sw-ui{background:#2568d8;}
+    .af-sw input:checked + .af-sw-ui:after{left:16px;}
+    .af-field{margin-bottom:12px;}
+    .af-flab{display:block;font-size:12px;color:#8a8f98;letter-spacing:1px;margin-bottom:6px;}
+    .af-inp{width:100%;max-width:420px;box-sizing:border-box;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:8px 12px;transition:border-color .15s;}
+    .af-inp:focus{outline:none;border-color:#2568d8;}
+    .af-teambox{display:flex;gap:14px;flex-wrap:wrap;padding:12px 14px;background:#fafbfc;border:1px dashed rgba(0,0,0,0.12);border-radius:10px;transition:opacity .2s;}
+    .af-teambox-off{opacity:.45;}
+    .af-teambox .af-field{margin-bottom:0;flex:1;min-width:200px;}
+    .af-rte-bar{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;}
+    .af-rte-bar button{font-family:inherit;font-size:12px;border:1px solid rgba(0,0,0,0.12);background:#f6f7f9;border-radius:6px;padding:4px 12px;cursor:pointer;transition:all .15s;}
+    .af-rte-bar button:hover{border-color:#1a1a1f;background:#fff;}
+    .af-rte{min-height:130px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.85;background:#fff;}
+    .af-rte:focus{outline:none;border-color:#2568d8;box-shadow:0 0 0 3px rgba(37,104,216,0.1);}
+    .af-row{border:1px solid rgba(0,0,0,0.09);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fafbfc;transition:border-color .15s;}
+    .af-row:hover{border-color:rgba(37,104,216,0.4);}
+    .af-frow-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .af-frow-i{font-family:'JetBrains Mono',monospace;font-size:11px;color:#fff;background:#1a1a1f;border-radius:6px;min-width:24px;height:22px;line-height:22px;text-align:center;flex:0 0 auto;}
+    .af-row .af-lab{flex:1;min-width:150px;box-sizing:border-box;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:7px 10px;background:#fff;}
+    .af-row .af-lab:focus,.af-row .af-type:focus{outline:none;border-color:#2568d8;}
+    .af-row .af-type{font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:7px 10px;background:#fff;}
+    .af-frow-ops{display:flex;gap:4px;margin-left:auto;}
+    .af-mini{font-family:inherit;font-size:12px;width:26px;height:26px;border:1px solid rgba(0,0,0,0.12);background:#fff;color:#8a8f98;border-radius:6px;cursor:pointer;transition:all .15s;padding:0;}
+    .af-mini:hover{border-color:#1a1a1f;color:#1a1a1f;}
+    .af-mini.del:hover{border-color:#c94b4b;background:#c94b4b;color:#fff;}
+    .af-frow-sub{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+    .af-frow-sub label{font-size:11px;color:#999;letter-spacing:1px;flex:0 0 auto;}
+    .af-row .af-opt{flex:1;min-width:200px;box-sizing:border-box;font-family:inherit;font-size:13px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:7px 10px;background:#fff;}
+    .af-row .af-opt:focus{outline:none;border-color:#2568d8;}
+    .af-req-w{font-size:12px;color:#666;display:inline-flex;gap:4px;align-items:center;cursor:pointer;flex:0 0 auto;}
+    .af-hint-row{font-size:12px;color:#aaa;line-height:1.7;margin-top:4px;}
+    .af-savebar{display:flex;gap:14px;align-items:center;padding-top:4px;}
+    .af-msg{font-size:13px;color:#2a9d63;} .af-msg.err{color:#c94b4b;}
+    .af-side{position:sticky;top:90px;}
+    .af-prev-card{border:1px solid rgba(0,0,0,0.08);border-radius:12px;background:#fff;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,.06);}
+    .pv-hd{font-size:11px;letter-spacing:2px;color:#fff;background:#1a1a1f;padding:10px 16px;font-weight:600;}
+    #af-preview{padding:16px;}
+    .pv-deadline{font-size:12px;color:#c98a1b;background:rgba(201,138,27,0.08);border-radius:8px;padding:6px 10px;margin-bottom:12px;}
+    .pv-lab{font-size:13px;color:#333;margin-bottom:6px;}
+    .pv-req{color:#e5484d;}
+    .pv-fake{height:34px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:#fafbfc;margin:6px 0 12px;}
+    .pv-fake-ta{height:64px;}
+    .pv-hint{display:inline-block;font-size:12px;color:#999;line-height:34px;}
+    .pv-chip{display:inline-block;font-size:12px;color:#333;border:1px solid rgba(0,0,0,0.12);border-radius:999px;padding:5px 12px;margin:0 6px 6px 0;background:#fff;}
+    .pv-drop{border:1.5px dashed rgba(37,104,216,0.35);border-radius:10px;padding:14px;text-align:center;font-size:12px;color:#2568d8;background:rgba(37,104,216,0.04);margin:6px 0 12px;}
+    .pv-rules{font-size:12px;color:#666;line-height:1.8;border-top:1px dashed rgba(0,0,0,0.1);margin-top:6px;padding-top:10px;max-height:180px;overflow-y:auto;}
+    .pv-submit{text-align:center;background:#1a1a1f;color:#fff;border-radius:8px;padding:9px 0;font-size:13px;letter-spacing:2px;margin-top:4px;}
+    @media(max-width:1100px){.af-grid{grid-template-columns:1fr;}.af-side{position:static;}}
+    @media(max-width:820px){.adm-sys-card{flex-direction:column;align-items:flex-start;}.adm-toolbar{flex-direction:column;align-items:stretch;}.adm-tools{justify-content:space-between;}.adm-search{flex:1;}}
   `),
     React.createElement("div", { ref: ref }));
 };
-
 var SIGNUP_CSS = `
   .sig-wrap{max-width:760px;margin:0 auto;}
   .sig-card{background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:14px;padding:36px 40px;box-shadow:0 18px 50px rgba(0,0,0,0.05);}
@@ -3489,45 +3758,96 @@ var MySection = () => {
       }
       h += "<div class='my-sec'><div class='my-sechead'><span class='t'>我的资源</span><span class='e'>MY ASSETS</span>" +
         "<span class='my-asset-actions'>" +
-        "<button class='my-tag' onclick='window.myOpenAssetsPanel(\"local\")'>📤 本地上传</button>" +
-        "<button class='my-tag my-tag-accent' onclick='window.myOpenAssetsPanel(\"program\")'>⚡ 上传程序</button>" +
+        "<button id='my-asset-btn-local' class='my-tag' onclick='window.myOpenAssetsPanel(\"local\")'>📤 本地上传</button>" +
+        "<button id='my-asset-btn-program' class='my-tag my-tag-accent' onclick='window.myOpenAssetsPanel(\"program\")'>⚡ 上传程序</button>" +
         "</span></div>" +
         "<div id='my-assets-list'>" + assetsListHtml(myAssets) + "</div></div>";
-      // ===== P3 聚光引导：高亮目标区 + 引导卡（知道了我 / 返回报名表）=====
-      window.myGuideRing = function (targetId, back) {
-        window.myGuideDismiss();
-        var el = document.getElementById(targetId);
-        if (!el) return;
-        try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
-        var r = el.getBoundingClientRect();
-        var pad = 12;
-        var spot = document.createElement("div");
-        spot.id = "__guideSpot";
-        spot.style.cssText = "position:fixed;z-index:11999;border-radius:14px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);transition:all .3s;";
-        spot.style.top = Math.max(r.top - pad, 8) + "px";
-        spot.style.left = Math.max(r.left - pad, 8) + "px";
-        spot.style.width = Math.min(r.width + pad * 2, window.innerWidth - 16) + "px";
-        spot.style.height = (r.height + pad * 2) + "px";
-        document.body.appendChild(spot);
-        var m = String(back || "").match(/^signup:(.+)$/);
-        var backTo = m ? "#signup?activity=" + encodeURIComponent(m[1]) : "";
-        var card = document.createElement("div");
-        card.id = "__guideCard";
-        card.style.cssText = "position:fixed;z-index:12001;left:50%;transform:translateX(-50%);bottom:32px;background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,0.25);padding:18px 20px;max-width:440px;width:calc(100% - 48px);font-size:13px;color:#333;";
-        card.innerHTML = "<div style='font-weight:700;font-size:14px;margin-bottom:6px'>把作品上传到「我的资源」</div>" +
-          "<div style='line-height:1.8;margin-bottom:12px'>① 点上方高亮区的 <b>📤 本地上传</b> 传文件，或 <b>⚡ 上传程序</b> 登记仓库；<br>② GitHub 公开仓库可在登记时一键拉取 README 留档；<br>③ 完成后回到报名页，切换「从我的作品选择」即可直接提交。</div>" +
-          "<div style='display:flex;gap:10px;justify-content:flex-end'>" +
-          (backTo ? "<button id='__guideBack' style='border:none;background:#1a1a1f;color:#fff;border-radius:999px;padding:8px 18px;font-size:13px;cursor:pointer;font-family:inherit'>返回报名表 →</button>" : "") +
-          "<button id='__guideOk' style='border:none;background:#eee;color:#333;border-radius:999px;padding:8px 18px;font-size:13px;cursor:pointer;font-family:inherit'>知道了</button></div>";
-        document.body.appendChild(card);
-        var okBtn = document.getElementById("__guideOk");
-        if (okBtn) okBtn.onclick = window.myGuideDismiss;
-        var backBtn = document.getElementById("__guideBack");
-        if (backBtn) backBtn.onclick = function () { window.myGuideDismiss(); location.hash = backTo; };
-      };
-      window.myGuideDismiss = function () {
+      // ===== P3 交互式引导：三步聚光 + 自动推进（替代旧静态引导卡）=====
+      window.__assetTourEnd = function () {
+        var t = window.__assetTour;
+        if (t) {
+          if (t.onResize) { window.removeEventListener("resize", t.onResize); window.removeEventListener("scroll", t.onResize, true); }
+        }
+        window.__assetTour = null;
         ["__guideSpot", "__guideCard"].forEach(function (id) { var e = document.getElementById(id); if (e && e.parentNode) e.parentNode.removeChild(e); });
       };
+      window.__assetTourRender = function () {
+        var t = window.__assetTour;
+        if (!t) return;
+        var st = t.steps[t.i];
+        var el = document.getElementById(st.target);
+        if (!el) { window.__assetTourEnd(); return; }
+        var r = el.getBoundingClientRect();
+        var pad = 8;
+        var spot = document.getElementById("__guideSpot");
+        if (!spot) { spot = document.createElement("div"); spot.id = "__guideSpot"; document.body.appendChild(spot); }
+        spot.style.cssText = "position:fixed;left:" + (r.left - pad) + "px;top:" + (r.top - pad) + "px;width:" + (r.width + pad * 2) + "px;height:" + (r.height + pad * 2) + "px;border-radius:12px;box-shadow:0 0 0 9999px rgba(10,14,30,.5);pointer-events:none;z-index:9998;transition:all .35s ease;";
+        var card = document.getElementById("__guideCard");
+        if (!card) { card = document.createElement("div"); card.id = "__guideCard"; document.body.appendChild(card); }
+        var dots = t.steps.map(function (s, k) {
+          return "<span class='gt-dot" + (k < t.i ? " gt-dot-done" : "") + (k === t.i ? " gt-dot-on" : "") + "'></span>";
+        }).join("");
+        var btns = "";
+        if (t.i > 0) btns += "<button id='__gtPrev' class='gt-btn gt-btn-ghost'>上一步</button>";
+        btns += "<button id='__gtNext' class='gt-btn gt-btn-main'>" + (t.i === t.steps.length - 1 ? "完成引导 ✓" : "下一步 →") + "</button>";
+        if (t.back && t.i === t.steps.length - 1) btns += "<button id='__gtBack' class='gt-btn gt-btn-link'>返回报名表 →</button>";
+        card.className = "gt-card";
+        card.innerHTML =
+          "<div class='gt-x' id='__gtX' title='关闭引导'>✕</div>" +
+          "<div class='gt-hd'><span class='gt-ico'>🎓</span><div><div class='gt-tt'>" + st.title + "</div><div class='gt-sub'>第 " + (t.i + 1) + " / " + t.steps.length + " 步</div></div></div>" +
+          "<div class='gt-b'>" + st.body + "</div>" +
+          "<div class='gt-dots'>" + dots + "<span class='gt-dots-lb'>" + (t.i === t.steps.length - 1 ? "即将完成" : "跟随高亮操作即可") + "</span></div>" +
+          "<div class='gt-btns'>" + btns + "</div>";
+        var cw = 360;
+        var ch = card.offsetHeight || 220;
+        var top = r.bottom + 14;
+        if (top + ch > window.innerHeight - 12) top = Math.max(12, r.top - ch - 14);
+        var left = Math.max(12, Math.min(r.left, window.innerWidth - cw - 12));
+        card.style.cssText = "position:fixed;left:" + left + "px;top:" + top + "px;width:" + cw + "px;z-index:9999;";
+        var xb = document.getElementById("__gtX");
+        if (xb) xb.onclick = function () { window.__assetTourEnd(); };
+        var pv = document.getElementById("__gtPrev");
+        if (pv) pv.onclick = function () { window.__assetTourGoto(t.i - 1); };
+        var nx = document.getElementById("__gtNext");
+        if (nx) nx.onclick = function () { if (t.i < t.steps.length - 1) { window.__assetTourGoto(t.i + 1); } else { window.__assetTourEnd(); } };
+        var bk = document.getElementById("__gtBack");
+        if (bk) bk.onclick = function () { window.__assetTourEnd(); window.location.hash = t.back; };
+      };
+      window.__assetTourGoto = function (i) {
+        var t = window.__assetTour;
+        if (!t) return;
+        if (i < 0 || i > t.steps.length - 1) return;
+        t.i = i;
+        var el = document.getElementById(t.steps[i].target);
+        if (el) { try { el.scrollIntoView({ block: "center" }); } catch (_) {} }
+        window.__assetTourRender();
+      };
+      window.__assetTourStart = function (back) {
+        window.__assetTourEnd();
+        var backHash = "";
+        if (back && back.indexOf("signup:") === 0) backHash = "#signup?activity=" + encodeURIComponent(back.slice(7));
+        else if (back && back.charAt(0) === "#") backHash = back;
+        window.__assetTour = {
+          i: 0, back: backHash,
+          steps: [
+            { target: "my-asset-btn-local", title: "上传作品文件", body: "点击右侧高亮的「📤 本地上传」，把作品文件（压缩包 / 文档 / 设计稿均可）拖进弹窗的虚线框即可上传，相同文件会自动去重。上传成功后引导会自动进入下一步。" },
+            { target: "my-asset-btn-program", title: "或登记程序作品", body: "程序类作品点「⚡ 上传程序」，填写仓库名称与地址即可，系统会自动读取 GitHub README 作为作品说明。" },
+            { target: "my-assets-list", title: "回报名页提交", body: "上传的作品会出现在这份列表里，报名时可直接选用。全部就绪后，点下方「返回报名表」继续完成报名。" }
+          ]
+        };
+        window.__assetTour.onResize = function () { window.__assetTourRender(); };
+        window.addEventListener("resize", window.__assetTour.onResize);
+        window.addEventListener("scroll", window.__assetTour.onResize, true);
+        setTimeout(function () { window.__assetTourGoto(0); }, 60);
+      };
+      window.__assetTourEvent = function (kind) {
+        var t = window.__assetTour;
+        if (!t || kind !== "asset-added") return;
+        window.__assetTourGoto(t.steps.length - 1);
+      };
+      // 兼容旧触发点：myGuideRing(targetId, back) → 交互式三步引导
+      window.myGuideRing = function (targetId, back) { window.__assetTourStart(back || ""); };
+      window.myGuideDismiss = function () { window.__assetTourEnd(); };
       window.myAssetsRefresh = function () {
         fetch("/api/assets?mine=1").then(function (r) { return r.json(); }).then(function (j) {
           var el = document.getElementById("my-assets-list");
@@ -3649,7 +3969,7 @@ var MySection = () => {
       };
       window.myAssetSubmit = function (mode) {
         var isProg = mode === "program";
-        var close = function () { window.myCloseAssetsPanel(); window.myAssetsRefresh(); };
+        var close = function () { window.myCloseAssetsPanel(); window.myAssetsRefresh(); if (window.__assetTourEvent) window.__assetTourEvent("asset-added"); };
         if (isProg) {
           var name = (document.getElementById("ap-name") || {}).value || "";
           var repo = (document.getElementById("ap-repo") || {}).value || "";
@@ -3706,7 +4026,7 @@ var MySection = () => {
     return function () {
       cancelled = true;
       try { delete window.myOpenRecord; } catch (_) { window.myOpenRecord = undefined; }
-      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit", "myGuideRing", "myGuideDismiss"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
+      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit", "myGuideRing", "myGuideDismiss", "__assetTourStart", "__assetTourEnd", "__assetTourEvent", "__assetTourGoto", "__assetTourRender"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `
@@ -3730,6 +4050,30 @@ var MySection = () => {
     .my-ai{margin-left:auto;font-size:13px;letter-spacing:1px;color:#2568d8;border:1px solid rgba(37,104,216,0.4);padding:8px 18px;border-radius:999px;text-decoration:none;transition:all .2s;}
     .my-ai:hover{background:rgba(37,104,216,0.1);}
     .my-asset-actions{margin-left:auto;display:flex;gap:10px;align-items:center;}
+    .gt-card{background:#fff;border-radius:14px;box-shadow:0 12px 44px rgba(15,23,42,.28);border:1px solid rgba(0,0,0,0.05);padding:18px 18px 14px;font-family:inherit;color:#1a1a1f;animation:gtIn .28s ease;}
+    @keyframes gtIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+    .gt-x{position:absolute;right:10px;top:10px;width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;color:#94a3b8;cursor:pointer;font-size:13px;transition:all .15s;}
+    .gt-x:hover{background:#f1f5f9;color:#334155;}
+    .gt-hd{display:flex;gap:10px;align-items:center;margin-bottom:10px;padding-right:24px;}
+    .gt-ico{width:34px;height:34px;border-radius:10px;background:rgba(37,104,216,0.1);display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto;}
+    .gt-tt{font-family:'Noto Serif SC',serif;font-size:15px;font-weight:700;letter-spacing:.5px;}
+    .gt-sub{font-size:11px;color:#999;letter-spacing:1px;margin-top:2px;}
+    .gt-b{font-size:13px;line-height:1.85;color:#475569;padding-bottom:12px;}
+    .gt-b b{color:#1a1a1f;}
+    .gt-dots{display:flex;gap:6px;align-items:center;margin-bottom:12px;}
+    .gt-dot{width:8px;height:8px;border-radius:50%;background:#e2e8f0;transition:all .2s;}
+    .gt-dot-done{background:#2a9d63;}
+    .gt-dot-on{background:#2568d8;transform:scale(1.3);box-shadow:0 0 0 4px rgba(37,104,216,0.15);}
+    .gt-dots-lb{font-size:11px;color:#b0b8c4;margin-left:6px;letter-spacing:1px;}
+    .gt-btns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;align-items:center;}
+    .gt-btn{font-family:inherit;font-size:13px;border-radius:8px;padding:8px 16px;cursor:pointer;transition:all .15s;border:1px solid transparent;}
+    .gt-btn-main{background:#1a1a1f;color:#fff;}
+    .gt-btn-main:hover{background:#000;}
+    .gt-btn-ghost{background:#fff;border-color:rgba(0,0,0,0.12);color:#666;}
+    .gt-btn-ghost:hover{border-color:#1a1a1f;color:#1a1a1f;}
+    .gt-btn-link{background:rgba(37,104,216,0.08);color:#2568d8;}
+    .gt-btn-link:hover{background:rgba(37,104,216,0.15);}
+
     .my-tag{display:inline-block;font-size:12px;letter-spacing:1px;color:#2568d8;border:1px solid rgba(37,104,216,0.4);background:#fff;padding:6px 14px;border-radius:999px;margin:0 6px 0 0;text-decoration:none;cursor:pointer;transition:all .15s;}
     .my-tag:hover{background:rgba(37,104,216,0.1);}
     .my-tag-accent{color:#fff;background:linear-gradient(135deg,#2568d8,#173f8f);border-color:transparent;}
