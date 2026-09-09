@@ -6715,6 +6715,7 @@ var App = () => {
     setPage(target);
     setSelectedWork(null);
     window.__pageScrollCur = target;
+    try { if (HASH_PAGES[target]) window.history.replaceState(null, "", "#" + target); } catch (_) {}
     var my = ((window.__pageScroll || {})[target]) || 0;
     if (my > 0) { setTimeout(function () { try { window.scrollTo(0, my); } catch (_) {} }, 60); }
     else { window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -7168,6 +7169,11 @@ window.App = App;
 
 /* ===== 挂载入口（预编译产物，无 Babel 依赖） ===== */
 (function mountOrError() {
+  // 整页刷新/深链不粘在报名页：挂载前清掉 #signup hash（站内「前往报名」跳转不受影响）
+  try {
+    var __mountHash = String(window.location.hash || "").replace(/^#/, "").split("?")[0];
+    if (__mountHash === "signup") window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  } catch (_) {}
   function showError() {
     var loader = document.getElementById('app-loader');
     if (!loader) return;
