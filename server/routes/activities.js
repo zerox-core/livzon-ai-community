@@ -129,6 +129,46 @@ async function notifyAct(userId, openId, { type, stage, title, body, activityId,
   }
 }
 
+// 新报名 → 管理员单聊卡片 + 站内通知（fire-and-forget，失败仅记日志，不阻塞报名响应）。
+// 管理员 = users 表 role='admin' 且 open_id 为飞书身份（ou_ 前缀）的用户。
+function adminSignupCard({ activityTitle, name, dept, contact, site }) {
+  const md = [
+    `**活动**：${activityTitle}`,
+    `**报名人**：${name || '—'}${dept ? `（${dept}）` : ''}`,
+    contact ? `**联系方式**：${contact}` : '',
+    '',
+    '可在管理端「报名管理」中查看全部报名信息。',
+  ].filter(Boolean).join('\n');
+  const elements = [{ tag: 'div', text: { tag: 'lark_md', content: md } }];
+  if (site) {
+    elements.push({
+      tag: 'action',
+      actions: [{ tag: 'button', text: { tag: 'plain_text', content: '去管理端查看' }, type: 'primary', url: site + '/#admin' }],
+    });
+  }
+  return { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: '新报名' }, template: 'blue' }, elements };
+}
+
+async function notifyAdminsOfSignup({ activityId, activityTitle, name, dept, contact }) {
+  try {
+    const admins = await query(`SELECT id, open_id FROM users WHERE role='admin' AND open_id LIKE 'ou_%'`);
+    for (const row of admins.rows) {
+      try {
+        await query(
+          `INSERT INTO notifications (user_id, type, title, body, link, activity_id, stage)
+           VALUES ($1,'admin-signup','新报名',$2,'',$3,'admin')`,
+          [row.id, `活动「${activityTitle}」收到新报名：${name || '—'}${dept ? `（${dept}）` : ''}${contact ? ` · ${contact}` : ''}`, activityId]);
+      } catch (e) { console.error('[activities.adminNotify.db]', e.message); }
+      try {
+        const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
+        const card = adminSignupCard({ activityTitle, name, dept, contact, site });
+        const r = await lark.sendCardToUser(row.open_id, card);
+        if (!r.ok) console.error('[activities.adminNotify.card]', r.error);
+      } catch (e) { console.error('[activities.adminNotify.card]', e.message); }
+    }
+  } catch (e) { console.error('[activities.adminNotify]', e.message); }
+}
+
 // POST /api/activities/:id/reserve —— 预约（authRequired；身份=登录态，姓名/部门快照落库）
 // body: { note? }  ≤500；UNIQUE(user_id,activity_id) 幂等：重复提交 200 repeated，不报错不累积
 router.post('/:id/reserve', authRequired, async (req, res) => {
@@ -287,6 +327,11 @@ router.post('/:id/signup', authRequired, async (req, res) => {
       body: `活动「${a.rows[0].title}」报名成功，请准时参加。`,
       card: { header: '报名成功', foot: '已登记，请准时参加。', when: a.rows[0].date_label || '', location: a.rows[0].location || '' },
     });
+    // 新报名 → 管理员卡片（异步不阻塞报名响应）
+    notifyAdminsOfSignup({
+      activityId: id, activityTitle: a.rows[0].title,
+      name: snap.name, dept: snap.dept, contact: (casted.contact || '').trim(),
+    }).catch((e) => console.error('[activities.adminNotify]', e.message));
     res.status(201).json(ok({ signedUp: true, repeated: false, message: '报名成功' }));
   } catch (e) {
     console.error('[activities.signup]', e);
