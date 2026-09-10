@@ -108,12 +108,13 @@ app.get('/api/info', (req, res) => {
 });
 
 // 数据 API —— works 从 PG 读，保持旧前端兼容的平铺结构 { session, works: [] }
+// 巨幕取数：仅人工筛选上墙的作品（wall_order 1..28，前端按展位覆盖对应卡片）；全部已发布作品见 /api/works/gallery
 app.get('/api/works', async (req, res) => {
   try {
     const { query } = require('./db');
     const r = await query(
-      `SELECT id, kind, title, author, category, description AS desc, cover, source, session, detail, status, published
-       FROM works WHERE status='approved' AND published=true ORDER BY id`
+      `SELECT id, kind, title, author, category, description AS desc, cover, source, session, detail, status, published, wall_order
+       FROM works WHERE status='approved' AND published=true AND wall_order IS NOT NULL ORDER BY wall_order`
     );
     const sessName = r.rows.length ? r.rows[0].session : '第 01 期';
     res.json({ session: sessName, updatedAt: new Date().toISOString().slice(0, 10), intro: '', works: r.rows });

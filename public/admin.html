@@ -102,7 +102,7 @@
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>ID</th><th>标题</th><th>作者</th><th>类型</th><th>分类</th><th>状态</th><th>发布</th><th>操作</th></tr></thead>
+        <thead><tr><th>ID</th><th>标题</th><th>作者</th><th>类型</th><th>分类</th><th>状态</th><th>发布</th><th>展位</th><th>操作</th></tr></thead>
         <tbody id="tbody"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
       </table>
     </div>
@@ -227,7 +227,7 @@
     var tbody = document.getElementById('tbody');
     var list = worksAll;
     if (filter !== 'all') list = list.filter(function (w) { return w.status === filter; });
-    if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">暂无作品</td></tr>'; return; }
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无作品</td></tr>'; return; }
     tbody.innerHTML = list.map(function (w) {
       return '<tr>' +
         '<td class="mono">' + w.id + '</td>' +
@@ -237,6 +237,7 @@
         '<td>' + esc(w.category) + '</td>' +
         '<td><span class="status ' + w.status + '">' + statusLabel(w.status) + '</span></td>' +
         '<td>' + (w.published ? '<span class="pub">已发布</span>' : '<span class="pub">未发布</span>') + '</td>' +
+        '<td>' + (w.wall_order ? '<span class="pub">№' + w.wall_order + '</span>' : '<span class="pub" style="opacity:.45">—</span>') + '</td>' +
         '<td class="actions">' + actions(w) + '</td></tr>';
     }).join('');
   }
@@ -248,7 +249,25 @@
     if (w.status !== 'rejected') html += '<a class="danger" onclick="act(' + w.id + ',\'rejected\')">驳回</a>';
     if (!w.published && w.status === 'approved') html += '<a onclick="act(' + w.id + ',\'approved\',true)">发布</a>';
     if (w.published) html += '<a class="danger" onclick="act(' + w.id + ',\'approved\',false)">下架</a>';
+    if (w.published && w.status === 'approved' && !w.wall_order) html += '<a onclick="toWall(' + w.id + ')">⬆ 上巨幕</a>';
+    if (w.wall_order) html += '<a class="danger" onclick="offWall(' + w.id + ')">撤下巨幕</a>';
     return html || '<span class="pub">—</span>';
+  }
+
+  // 人工筛选上巨幕：指定 1..28 展位（展位被占用时后端会拒绝并提示）
+  async function toWall(id) {
+    var input = prompt('输入巨幕展位号 1..28（4 行 × 7 列，按行排列；该展位已被占用时会被拒绝）：', '');
+    if (input == null) return;
+    var slot = parseInt(input, 10);
+    if (!(slot >= 1 && slot <= 28)) { alert('展位号须为 1..28 的整数'); return; }
+    var resp = await fetch('/api/admin/works/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-user-role': role }, body: JSON.stringify({ wall_order: slot }) });
+    var data = await resp.json();
+    if (data.ok) loadWorks(); else alert(data.error.message);
+  }
+  async function offWall(id) {
+    var resp = await fetch('/api/admin/works/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-user-role': role }, body: JSON.stringify({ wall_order: null }) });
+    var data = await resp.json();
+    if (data.ok) loadWorks(); else alert(data.error.message);
   }
 
   async function act(id, status, published) {

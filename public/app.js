@@ -4034,7 +4034,8 @@ var MySection = () => {
               "</div>" +
               "<label>资源中心地址<textarea id='ap-remote' class='my-input' rows='2' placeholder='https://resource-center.example/items/42（提交后由 agent 回填）'></textarea></label>" +
               "<div class='my-ap-prompt' id='ap-prompt'></div>" +
-              "<button class='my-tag' onclick='window.myAssetCopyPrompt()'>📋 复制提示词</button>" +
+              "<button class='my-tag' onclick='window.myAssetCopyPrompt()'>📋 复制任务书</button>" +
+              "<button class='my-tag' onclick='window.myAssetSaveBrief()'>⬇ 保存任务书(.md)</button>" +
               "<label>资源中心审核状态<select id='ap-status' class='my-input'><option value='pending'>待处理</option><option value='reviewing'>审核中</option><option value='online'>已上线</option><option value='rejected'>被驳回</option></select></label>" +
               "<label>粘贴 agent 报告<textarea id='ap-report' class='my-input' rows='3' placeholder='把 agent 输出的格式化报告粘贴到这里（留存）'></textarea></label>" +
               "<div class='my-overlay-btns'><button class='my-tag my-tag-accent' onclick='window.myAssetSubmit(\"program\")'>提交登记</button><button class='my-tag' onclick='window.myCloseAssetsPanel()'>取消</button></div>" +
@@ -4122,13 +4123,40 @@ var MySection = () => {
         if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
         window.__assetPanel = null;
       };
-      window.myAssetCopyPrompt = function () {
+      // 任务书：完整可执行的 agent 作业说明（人工兜底仍可在面板粘贴报告后手工登记）
+      window.myAssetTaskBrief = function () {
         var name = (document.getElementById("ap-name") || {}).value || "";
         var repo = (document.getElementById("ap-repo") || {}).value || "";
-        var txt = "请帮我把下面这个程序推送到内网 gitlab 并提交到飞书资源中心审核。\n" +
-          "程序名称：" + name + "\n" +
-          "gitlab 仓库（待推送后补）：" + repo + "\n" +
-          "流程：1) 登录授权；2) 推到内网 gitlab；3) 提交资源中心审核；4) 输出格式化报告（含资源中心 URL）。";
+        var remote = (document.getElementById("ap-remote") || {}).value || "";
+        var intro = ((document.getElementById("ap-intro") || {}).value || "").trim();
+        var origin = window.location.origin;
+        var stamp = new Date().toLocaleString();
+        return "# Agent 任务书：推送程序到内网 gitlab + 提交飞书资源中心 + 回填登记\n\n" +
+          "- 生成时间：" + stamp + "\n" +
+          "- 站点：" + origin + "（完成后在「个人中心 → 我的资源」查看登记结果）\n\n" +
+          "## 待发布程序\n" +
+          "- 名称：" + (name || "(待补充)") + "\n" +
+          "- 说明：" + (intro || "(无)") + "\n" +
+          "- gitlab 仓库：" + (repo || "(待创建/补充)") + "\n" +
+          "- 资源中心地址：" + (remote || "(完成后由资源中心返回)") + "\n\n" +
+          "## 执行步骤\n" +
+          "1. 逐项执行；任一步失败即停止，并如实输出失败原因（不要编造 URL）。\n" +
+          "2. 确认程序文件/源码已就绪（向用户索要路径，或按上面说明准备）。\n" +
+          "3. 推送到内网 gitlab：" + (repo || "按团队规范创建仓库 " + (name || "program")) + "。\n" +
+          "4. 在飞书资源中心创建/提交该程序条目，取得资源中心 URL。\n" +
+          "5. 回填登记——调用站点接口（鉴权 token 见服务器 server/.env 的 AGENT_TOKEN，不要外泄）：\n\n" +
+          "   curl -sS -X POST \"" + origin + "/api/assets/agent-register\" \\\n" +
+          "     -H \"Content-Type: application/json\" \\\n" +
+          "     -H \"x-agent-token: $AGENT_TOKEN\" \\\n" +
+          "     -d '{\"name\":\"" + (name || "") + "\",\"repoUrl\":\"" + (repo || "") + "\",\"remoteUrl\":\"<资源中心URL>\",\"remoteStatus\":\"submitted\",\"stage\":\"submitted\",\"agentReport\":\"<执行报告摘要>\"}'\n\n" +
+          "   说明：若用户已在面板预建登记并提供了 assetId，则在上面的 JSON 里加上 \"assetId\":\"<id>\" 只做更新；留空则新建登记。\n" +
+          "6. 向用户汇报：gitlab 地址、资源中心 URL、回填接口返回的 asset id。\n\n" +
+          "## 约束\n" +
+          "- 不要把 AGENT_TOKEN / 任何密钥写进报告、提交信息或日志。\n" +
+          "- 内网地址不可达、无权限时如实报告并停止，不要虚构结果。";
+      };
+      window.myAssetCopyPrompt = function () {
+        var txt = window.myAssetTaskBrief();
         var ok = false;
         try { navigator.clipboard.writeText(txt); ok = true; } catch (e) {}
         if (!ok) {
@@ -4137,8 +4165,20 @@ var MySection = () => {
           document.body.removeChild(ta);
         }
         var el = document.getElementById("ap-prompt");
-        if (el) el.innerHTML = ok ? "<span class='my-ap-ok'>已复制提示词 → 交给 agent，完成授权/推送/审核后把报告和 URL 粘贴回来。</span>"
-                                  : "<span class='my-ap-err'>复制失败，请手动复制上一步内容。</span>";
+        if (el) el.innerHTML = ok ? "<span class='my-ap-ok'>已复制完整任务书 → 交给 agent 执行；完成后它会自动调接口回填登记（或把报告/URL 粘回本面板手工登记）。</span>"
+                                  : "<span class='my-ap-err'>复制失败，请改用「⬇ 保存任务书」。</span>";
+      };
+      window.myAssetSaveBrief = function () {
+        var txt = window.myAssetTaskBrief();
+        var name = ((document.getElementById("ap-name") || {}).value || "program").replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 40);
+        var stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+        var blob = new Blob([txt], { type: "text/markdown;charset=utf-8" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "agent-task-" + name + "-" + stamp + ".md";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        var el = document.getElementById("ap-prompt");
+        if (el) el.innerHTML = "<span class='my-ap-ok'>任务书已保存为 .md 文件 → 直接发给 agent 即可执行。</span>";
       };
       window.myAssetSubmit = function (mode) {
         var isProg = mode === "program";
@@ -4200,7 +4240,7 @@ var MySection = () => {
     return function () {
       cancelled = true;
       try { delete window.myOpenRecord; } catch (_) { window.myOpenRecord = undefined; }
-      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetCopyPrompt", "myAssetSubmit", "myGuideRing", "myGuideDismiss", "__assetTourStart", "__assetTourEnd", "__assetTourEvent", "__assetTourGoto", "__assetTourRender"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
+      ["myAssetsRefresh", "myAssetDownload", "myAssetDelete", "myOpenAssetsPanel", "myCloseAssetsPanel", "myAssetTaskBrief", "myAssetCopyPrompt", "myAssetSaveBrief", "myAssetSubmit", "myGuideRing", "myGuideDismiss", "__assetTourStart", "__assetTourEnd", "__assetTourEvent", "__assetTourGoto", "__assetTourRender"].forEach(function (k) { try { delete window[k]; } catch (_) {} });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } }, React.createElement("style", null, `
@@ -6407,7 +6447,7 @@ var WorkDetail = ({ workIdx, onBack }) => {
       textAlign: "center",
       lineHeight: 1.6
     }
-  }, "该作品暂未登记原网页链接，管理员可在 public/data/works.json 对应作品的 link 字段中补充。") : null;
+  }, "该作品暂未登记原网页链接，管理员可在管理后台编辑该作品补充「原网页链接」（存于 works.detail.link）。") : null;
   const ctaStrip = el("div", { style: { width: "100%", marginBottom: 48 } },
     el("button", { style: ctaStyle, onMouseEnter: hoverLift, onMouseLeave: hoverReset, onClick: openLink },
       link ? "进入作品原网页  ↗" : "作品原网页 · 链接待管理员补充"),
@@ -6837,6 +6877,8 @@ var App = () => {
     onNavigate: handleNavigate
   }), /* @__PURE__ */ React.createElement(HomeHighlights, {
     onNavigate: handleNavigate
+  }), /* @__PURE__ */ React.createElement(HomeGallery, {
+    onWorkClick: handleWorkClick
   })), page === "work" && selectedWork !== null && /* @__PURE__ */ React.createElement(WorkDetail, {
     workIdx: selectedWork,
     onBack: () => handleNavigate("home")
@@ -7032,6 +7074,79 @@ var App = () => {
         }
       `));
 };
+// ===== 巨幕下方 · 活动作品走廊（罗列全部已发布作品；点击进详情或浮层；上墙与否则由管理员人工筛选） =====
+var HomeGallery = ({ onWorkClick }) => {
+  const [works, setWorks] = React.useState([]);
+  const [loaded, setLoaded] = React.useState(false);
+  const [openWork, setOpenWork] = React.useState(null); // 未上墙作品的详情浮层（上墙作品走巨幕详情页）
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/works/gallery").then(function (r) {
+      return r.ok ? r.json() : Promise.reject(r.status);
+    }).then(function (j) {
+      if (cancelled) return;
+      setWorks((j && j.data && j.data.works) || []);
+      setLoaded(true);
+    }).catch(function () { if (!cancelled) setLoaded(true); });
+    return function () { cancelled = true; };
+  }, []);
+  const open = (w) => {
+    if (w.wall_order && onWorkClick) { onWorkClick(w.wall_order - 1); return; }
+    setOpenWork(w);
+  };
+  const card = (w) => React.createElement("div", {
+    key: w.id,
+    onClick: () => open(w),
+    style: {
+      cursor: "pointer", background: "#fff", borderRadius: 6, overflow: "hidden",
+      border: "1px solid rgba(0,0,0,0.06)", transition: "transform .25s, box-shadow .25s"
+    },
+    onMouseEnter: (e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 32px rgba(0,0,0,0.08)"; },
+    onMouseLeave: (e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }
+  },
+    React.createElement("div", { style: { aspectRatio: "4/3", background: "#eceae6", position: "relative" } },
+      w.cover && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0
+        ? React.createElement("img", { src: w.cover, alt: "", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
+        : React.createElement("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b9b4ac", fontSize: 12, letterSpacing: 2 } }, (w.category || w.kind || "WORK").toUpperCase()),
+      w.wall_order ? React.createElement("span", { style: { position: "absolute", top: 8, left: 8, background: "rgba(10,10,13,0.72)", color: "#fff", fontSize: 10, letterSpacing: 1, padding: "3px 8px", borderRadius: 3, fontFamily: "'JetBrains Mono', monospace" } }, "巨幕 №" + w.wall_order) : null
+    ),
+    React.createElement("div", { style: { padding: "14px 16px 16px" } },
+      React.createElement("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, w.title || "未命名作品"),
+      React.createElement("div", { style: { fontSize: 12, color: "#8a857d", marginTop: 5, display: "flex", justifyContent: "space-between" } },
+        React.createElement("span", null, w.author || "—"),
+        React.createElement("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10 } }, (w.category || w.kind || "").toUpperCase()))));
+  return React.createElement("section", {
+    className: "page-section",
+    style: { background: "#f8f8f6", color: "#1a1a1f", padding: "88px 64px 96px", borderTop: "1px solid rgba(0,0,0,0.05)" }
+  },
+    React.createElement("div", { className: "page-container", style: { maxWidth: 1200, margin: "0 auto" } },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 36 } },
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 11, color: "#999", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 } }, "COMMUNITY GALLERY · 活动作品走廊"),
+          React.createElement("div", { style: { fontSize: 26, fontWeight: 300, letterSpacing: 1, fontFamily: "'Noto Serif SC', serif" } }, "各活动发布的作品")),
+        React.createElement("div", { style: { fontSize: 12, color: "#999", maxWidth: 320, textAlign: "right", lineHeight: 1.7 } },
+          "审核通过并发布的作品在此罗列；管理员可从中人工筛选「提上巨幕」。")),
+      !loaded ? null :
+        (works.length ? React.createElement("div", {
+          style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }
+        }, works.map(card)) :
+          React.createElement("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } },
+            "暂无已发布作品——在「上传作品」页提交并通过审核后，会自动罗列在这里。"))),
+    openWork && React.createElement("div", { onClick: () => setOpenWork(null),
+      style: { position: "fixed", inset: 0, background: "rgba(10,10,13,0.55)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 } },
+      React.createElement("div", { onClick: (e) => e.stopPropagation(),
+        style: { background: "#fff", borderRadius: 8, maxWidth: 860, width: "100%", maxHeight: "84vh", overflowY: "auto", position: "relative", padding: 40 } },
+        React.createElement("button", { onClick: () => setOpenWork(null), style: { position: "absolute", top: 14, right: 18, border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#999" } }, "×"),
+        openWork.cover && openWork.cover.indexOf("wall:") !== 0 && openWork.cover.indexOf("data:") !== 0
+          ? React.createElement("img", { src: openWork.cover, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 6, marginBottom: 24, display: "block" } }) : null,
+        React.createElement("div", { style: { fontSize: 22, fontWeight: 600, fontFamily: "'Noto Serif SC', serif" } }, openWork.title),
+        React.createElement("div", { style: { fontSize: 12, color: "#999", margin: "10px 0 18px", letterSpacing: 1 } },
+          (openWork.author || "—") + " · " + (openWork.category || openWork.kind || "") + (openWork.wall_order ? " · 巨幕 №" + openWork.wall_order : "")),
+        React.createElement("p", { style: { fontSize: 14, lineHeight: 1.9, color: "#444", whiteSpace: "pre-wrap" } }, openWork.description || ""),
+        (openWork.detail && openWork.detail.link) ? React.createElement("a", { href: openWork.detail.link, target: "_blank", rel: "noopener", style: { display: "inline-block", margin: "6px 0 4px", fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "进入作品原网页 ↗") : null,
+        openWork.id != null ? React.createElement(Artifacts, { workId: openWork.id }) : null,
+        openWork.id != null ? React.createElement(WorkComments, { workId: openWork.id }) : null)));
+};
 var HomeEntryRail = ({ onNavigate }) => {
   var el = React.createElement;
   var entries = [
@@ -7213,17 +7328,20 @@ window.App = App;
         return r.ok ? r.json() : Promise.reject(r.status);
       }).then(function (data) {
         try {
+          // 巨幕取数：仅人工筛选上墙的作品（wall_order 1..28），按展位覆盖对应卡片；
+          // 未上墙的已发布作品在「作品走廊」（HomeGallery，/api/works/gallery）中罗列
           var works = (data && data.works) || [];
-          for (var i = 0; i < works.length && i < WORKS_INFO.length; i++) {
+          for (var i = 0; i < works.length; i++) {
             var w = works[i];
-            if (!w) continue;
-            if (w.id != null) WORKS_INFO[i].id = w.id;   // 真实作品 id：投票/评论依赖
-            if (w.title) WORKS_INFO[i].title = w.title;
-            if (w.author) WORKS_INFO[i].author = w.author;
-            if (w.category) WORKS_INFO[i].category = w.category;
-            if (w.desc) WORKS_INFO[i].desc = w.desc;
+            if (!w || !w.wall_order || w.wall_order < 1 || w.wall_order > WORKS_INFO.length) continue;
+            var slot = w.wall_order - 1;
+            if (w.id != null) WORKS_INFO[slot].id = w.id;   // 真实作品 id：投票/评论依赖
+            if (w.title) WORKS_INFO[slot].title = w.title;
+            if (w.author) WORKS_INFO[slot].author = w.author;
+            if (w.category) WORKS_INFO[slot].category = w.category;
+            if (w.desc) WORKS_INFO[slot].desc = w.desc;
             if (w.theme || w.source || (w.team && w.team.length) || (w.process && w.process.length) || w.link) {
-              WORKS_INFO[i].detail = {
+              WORKS_INFO[slot].detail = {
                 theme: w.theme || "",
                 source: w.source || "",
                 team: w.team || [],
@@ -7232,7 +7350,7 @@ window.App = App;
               };
             }
             if (w.cover && typeof w.cover === "string" && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0) {
-              WALL_IMAGES[i] = w.cover;
+              WALL_IMAGES[slot] = w.cover;
             }
           }
         } catch (e) {

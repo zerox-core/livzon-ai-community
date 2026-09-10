@@ -8,7 +8,7 @@ const { checkRules } = require('../validate');
 const router = express.Router();
 
 // 列字段（不含详情大对象，减少传输；详情单查时带出）
-const LIST_FIELDS = `id, kind, title, author, category, description, cover, source, session, status, published, created_at`;
+const LIST_FIELDS = `id, kind, title, author, category, description, cover, source, session, status, published, wall_order, created_at`;
 
 // POST /api/works —— 上传新作品（严格校验，真写库）
 router.post('/', async (req, res) => {
@@ -59,15 +59,29 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/works —— 公开作品列表（审核通过且公开）
+// GET /api/works —— 巨幕作品（人工筛选上墙：approved+published+wall_order 非空，按展位排序）
 router.get('/', async (req, res) => {
   try {
     const r = await query(
-      `SELECT ${LIST_FIELDS} FROM works WHERE status='approved' AND published=true ORDER BY id`
+      `SELECT ${LIST_FIELDS} FROM works WHERE status='approved' AND published=true AND wall_order IS NOT NULL ORDER BY wall_order`
     );
     res.json(ok({ works: r.rows }));
   } catch (e) {
     console.error('[works.get]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/works/gallery —— 作品走廊：全部已发布作品（含未上墙），巨幕下方罗列（须注册在 /:id 之前）
+router.get('/gallery', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT ${LIST_FIELDS} FROM works WHERE status='approved' AND published=true
+       ORDER BY (wall_order IS NULL) ASC, wall_order ASC NULLS LAST, created_at DESC`
+    );
+    res.json(ok({ works: r.rows }));
+  } catch (e) {
+    console.error('[works.gallery]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });

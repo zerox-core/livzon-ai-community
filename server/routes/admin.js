@@ -18,7 +18,7 @@ const { sanitizeProfile } = require('../lib/signup-form');
 const router = express.Router();
 const lark = new LarkClient(process.env);
 
-const FIELDS = `id, kind, title, author, category, description, cover, source, session, status, published, created_at`;
+const FIELDS = `id, kind, title, author, category, description, cover, source, session, status, published, wall_order, created_at`;
 
 // 读取视图用的角色：session 优先，开发态回退旧头（不影响写接口的强校验）
 function viewRole(req) {
@@ -48,29 +48,54 @@ router.get('/works', async (req, res) => {
   }
 });
 
-// PATCH /api/admin/works/:id —— 更新审核状态 / 发布（仅管理员）
+// PATCH /api/admin/works/:id —— 更新审核状态 / 发布 / 巨幕展位（仅管理员）
+// wall_order：整数 1..28 = 提上巨幕对应展位；null = 撤下巨幕；缺省 = 不动。
+// 冲突保护：目标展位已被其他作品占用时返回 400 提示；下架（published=false）自动撤墙。
 router.patch('/works/:id', adminRequired, async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
 
-  const { status, published } = req.body || {};
+  const { status, published, wall_order } = req.body || {};
   if (status && !['pending', 'approved', 'rejected'].includes(status)) {
     return res.status(400).json(err(ErrorCodes.VALIDATION, 'status 取值非法'));
   }
   if (published != null && typeof published !== 'boolean') {
     return res.status(400).json(err(ErrorCodes.VALIDATION, 'published 应为布尔'));
   }
+  if (wall_order !== undefined && wall_order !== null
+      && (!Number.isInteger(wall_order) || wall_order < 1 || wall_order > 28)) {
+    return res.status(400).json(err(ErrorCodes.VALIDATION, 'wall_order 应为 1..28 的整数或 null'));
+  }
 
   const sets = [];
   const vals = [id];
   if (status) { vals.push(status); sets.push(`status=$${vals.length}`); }
   if (published != null) { vals.push(published); sets.push(`published=$${vals.length}`); }
+  // 下架/驳回时强制撤墙；否则按显式传入的 wall_order 处理
+  const effectiveWall = (published === false || status === 'rejected') ? null : wall_order;
+  if (effectiveWall !== undefined) { vals.push(effectiveWall); sets.push(`wall_order=$${vals.length}`); }
   if (!sets.length) return res.status(400).json(err(ErrorCodes.VALIDATION, '无可更新字段'));
 
-  vals.push(new Date().toISOString());
-  sets.push(`updated_at=$${vals.length}`);
-
   try {
+    if (effectiveWall != null) {
+      // 展位冲突检测：同展位且不是本作品的其他行（unique 部分索引兜底）
+      const c = await query(
+        `SELECT id, title FROM works WHERE wall_order=$1 AND id<>$2 AND status='approved' AND published=true`,
+        [effectiveWall, id]);
+      if (c.rows.length) {
+        return res.status(400).json(err(ErrorCodes.VALIDATION,
+          `展位 ${effectiveWall} 已被作品《${c.rows[0].title}》占用（id=${c.rows[0].id}），请先撤下它或换一个展位`));
+      }
+      // 上墙的前提是已通过且已发布：未满足时一并带上（人工筛选=明确动作）
+      const cur = await query(`SELECT status, published FROM works WHERE id=$1`, [id]);
+      if (!cur.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在'));
+      if (cur.rows[0].status !== 'approved' || !cur.rows[0].published) {
+        vals.push('approved'); sets.push(`status=$${vals.length}`);
+        vals.push(true); sets.push(`published=$${vals.length}`);
+      }
+    }
+    vals.push(new Date().toISOString());
+    sets.push(`updated_at=$${vals.length}`);
     const r = await query(`UPDATE works SET ${sets.join(', ')} WHERE id=$1 RETURNING ${FIELDS}`, vals);
     if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在'));
     res.json(ok(r.rows[0]));

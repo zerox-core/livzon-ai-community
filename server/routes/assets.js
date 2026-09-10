@@ -5,6 +5,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { query } = require('../db');
 const { ok, err, ErrorCodes } = require('../contract');
 const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
@@ -120,6 +122,70 @@ router.post('/', authRequired, async (req, res) => {
     res.status(201).json(ok({ asset }));
   } catch (e) {
     console.error('[assets.post]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// POST /api/assets/agent-register —— agent 自动化回填：agent 在内网完成「推 gitlab / 提交资源中心」后，
+// 用本接口把结果写回资产（替代人工粘贴报告）。鉴权走请求头 x-agent-token === server/.env 的 AGENT_TOKEN
+// （timingSafeEqual 恒时比对；AGENT_TOKEN 未配置 → 501 未启用）。带 assetId=更新既有登记；否则新建 remote 登记（归属第一个 admin）。
+router.post('/agent-register', async (req, res) => {
+  const token = String(process.env.AGENT_TOKEN || '');
+  if (!token) return res.status(501).json(err(ErrorCodes.MOCK_UNAVAILABLE, 'agent 回填未启用：请在 server/.env 配置 AGENT_TOKEN'));
+  const got = Buffer.from(String(req.headers['x-agent-token'] || ''));
+  const want = Buffer.from(token);
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+    return res.status(401).json(err(ErrorCodes.AUTH, 'agent token 校验失败'));
+  }
+  const rules = {
+    assetId: { type: 'string', max: 64 },
+    name: { type: 'string', max: 255 },
+    category: { type: 'string', enum: ASSET_CATEGORIES },
+    kind: { type: 'string', max: 40 },
+    repoUrl: { type: 'string', max: 1000 },
+    remoteUrl: { type: 'string', max: 2000 },
+    remoteStatus: { type: 'string', max: 40 },
+    stage: { type: 'string', max: 40 },
+    guide: { type: 'string', max: 4000 },
+    agentReport: { type: 'string', max: 40000 },
+  };
+  const { valid, errors, casted } = checkRules(req.body || {}, rules);
+  if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+  try {
+    if (casted.assetId) {
+      const cur = await getAsset(casted.assetId);
+      if (!cur) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '资源不存在'));
+      const colMap = { name: 'name', repo_url: 'repoUrl', remote_url: 'remoteUrl', remote_status: 'remoteStatus', stage: 'stage', guide: 'guide', agent_report: 'agentReport' };
+      const sets = [];
+      const vals = [];
+      for (const [col, key] of Object.entries(colMap)) {
+        if (casted[key] !== undefined) { vals.push(casted[key]); sets.push(`${col}=$${vals.length}`); }
+      }
+      if (!sets.length) return res.status(400).json(err(ErrorCodes.VALIDATION, '无可更新字段'));
+      vals.push(casted.assetId);
+      const r = await query(`UPDATE assets SET ${sets.join(', ')}, updated_at=now() WHERE id=$${vals.length} RETURNING id, name, repo_url, remote_url, remote_status, stage, guide, agent_report`, vals);
+      return res.json(ok({ updated: true, asset: r.rows[0] }));
+    }
+    const owner = await query(`SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1`);
+    if (!owner.rows.length) return res.status(500).json(err(ErrorCodes.INTERNAL, '无可用管理员账号，无法归属 agent 登记'));
+    const asset = await createAsset({
+      user_id: owner.rows[0].id,
+      category: casted.category || 'program',
+      backend: 'remote',
+      kind: casted.kind || 'miniprogram',
+      name: casted.name || '',
+      size: 0,
+      storage_url: casted.remoteUrl || casted.repoUrl || '',
+      repo_url: casted.repoUrl || '',
+      remote_url: casted.remoteUrl || '',
+      remote_status: casted.remoteStatus || '',
+      agent_report: casted.agentReport || '',
+      stage: casted.stage || '',
+      guide: casted.guide || '',
+    });
+    res.status(201).json(ok({ created: true, asset }));
+  } catch (e) {
+    console.error('[assets.agentRegister]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 });
