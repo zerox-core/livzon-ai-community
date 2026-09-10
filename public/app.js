@@ -502,10 +502,14 @@ var HeroSection = ({ onWorkClick }) => {
     className: "hero-section",
     style: {
       position: "relative",
-      minHeight: "auto",
-      padding: "0 0 72px",
+      minHeight: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      padding: "120px 0 160px",
       overflow: "hidden",
-      background: "#0a0a0d"
+      background: "#0a0a0d",
+      boxSizing: "border-box"
     }
   }, /* @__PURE__ */ React.createElement("div", {
     style: {
@@ -539,8 +543,7 @@ var HeroSection = ({ onWorkClick }) => {
     style: {
       position: "relative",
       zIndex: 2,
-      opacity: 1,
-      paddingTop: 96
+      opacity: 1
     }
   }, /* @__PURE__ */ React.createElement(CurvedWall, {
     onWorkClick
