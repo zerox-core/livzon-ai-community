@@ -503,10 +503,7 @@ var HeroSection = ({ onWorkClick }) => {
     style: {
       position: "relative",
       minHeight: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      padding: "120px 0 160px",
+      padding: "0 0 160px",
       overflow: "hidden",
       background: "#0a0a0d",
       boxSizing: "border-box"
@@ -540,6 +537,25 @@ var HeroSection = ({ onWorkClick }) => {
       background: "linear-gradient(to top, #0a0a0d, transparent)"
     }
   }), /* @__PURE__ */ React.createElement("div", {
+    className: "hero-header",
+    style: {
+      position: "relative",
+      textAlign: "center",
+      paddingTop: 120,
+      marginBottom: 44,
+      zIndex: 2
+    }
+  }, /* @__PURE__ */ React.createElement("h1", {
+    className: "hero-title",
+    style: {
+      fontSize: 46,
+      fontWeight: 300,
+      color: "#fff",
+      letterSpacing: 12,
+      lineHeight: 1.2,
+      fontFamily: "'Noto Serif SC', serif"
+    }
+  }, "丽 珠 AI")), /* @__PURE__ */ React.createElement("div", {
     style: {
       position: "relative",
       zIndex: 2,
