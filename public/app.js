@@ -5588,8 +5588,10 @@ var CommunitySection = () => {
       delete window.comDmSend;
     };
   }, []);
-  return React.createElement("section", { className: "page-section", style: { background: "#f6f7f8", color: "#0f1419", padding: "88px 16px 80px", minHeight: "100vh" } }, React.createElement("style", null, `
+  return React.createElement("section", { className: "page-section com-nofx", style: { background: "#f6f7f8", color: "#0f1419", padding: "88px 16px 80px", minHeight: "100vh" } }, React.createElement("style", null, `
     .com-wrap{max-width:1080px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;}
+    @keyframes comPageFade{from{opacity:0;}to{opacity:1;}}
+    section.page-section.com-nofx{animation:comPageFade .5s ease both !important;}
     .com-navbar{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e4e7eb;border-radius:10px;padding:10px 16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(15,20,25,0.04);}
     .com-nav-left{display:flex;align-items:center;gap:10px;min-width:0;}
     .com-nav-logo-img{display:block;width:30px;height:30px;border-radius:8px;object-fit:cover;flex:0 0 30px;}
