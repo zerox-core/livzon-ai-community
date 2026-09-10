@@ -121,6 +121,31 @@ class LarkClient {
     return this._imSend(openId, 'interactive', JSON.stringify(card));
   }
 
+  /**
+   * 更新机器人已发送的交互卡片（PATCH /open-apis/im/v1/messages/:message_id）
+   * 官方要求：更新前后卡片的 config 中均需声明 update_multi:true（共享卡片）
+   * @param {string} messageId om_ 开头的消息 ID
+   * @param {object} card 新的卡片 JSON
+   * @returns {Promise<{ok: boolean, error?: string}>}
+   */
+  async updateCardMessage(messageId, card) {
+    if (!(this.appId && this.appSecret)) return { ok: false, error: 'app_credentials_missing' };
+    if (!/^om_/.test(String(messageId || ''))) return { ok: false, error: 'invalid_message_id' };
+    try {
+      const token = await this.getTenantAccessToken();
+      const resp = await fetch(`${LARK_HOST}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ content: JSON.stringify(card) }),
+      });
+      const data = await resp.json();
+      if (data.code !== 0) return { ok: false, error: `im_error: code=${data.code} msg=${data.msg || data.error_description || ''}` };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: 'network_error: ' + e.message };
+    }
+  }
+
   async _imSend(openId, msgType, content) {
     if (!(this.appId && this.appSecret)) return { ok: false, error: 'app_credentials_missing' };
     if (!/^ou_/.test(String(openId || ''))) return { ok: false, error: 'invalid_open_id' };

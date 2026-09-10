@@ -156,12 +156,14 @@ function adminSignupCard({ signupId, activityTitle, name, dept, contact, site })
     actions.push({ tag: 'button', text: { tag: 'plain_text', content: '管理端处理' }, type: 'default', url: site + '/#admin' });
     elements.push({ tag: 'action', actions });
   }
-  return { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: '新报名待审批' }, template: 'orange' }, elements };
+  // update_multi:true 为「共享卡片」声明：审批后才能通过 PATCH /im/v1/messages/:id 把本卡更新为终态
+  return { config: { wide_screen_mode: true, update_multi: true }, header: { title: { tag: 'plain_text', content: '新报名待审批' }, template: 'orange' }, elements };
 }
 
 async function notifyAdminsOfSignup({ signupId, activityId, activityTitle, name, dept, contact }) {
   try {
     const admins = await query(`SELECT id, open_id FROM users WHERE role='admin' AND open_id LIKE 'ou_%'`);
+    const sentCards = []; // 冗存各管理员卡片的 message_id，供后续审批时同步更新卡片状态
     for (const row of admins.rows) {
       try {
         await query(
@@ -173,8 +175,15 @@ async function notifyAdminsOfSignup({ signupId, activityId, activityTitle, name,
         const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
         const card = adminSignupCard({ signupId, activityTitle, name, dept, contact, site });
         const r = await lark.sendCardToUser(row.open_id, card);
-        if (!r.ok) console.error('[activities.adminNotify.card]', r.error);
+        if (r.ok && r.messageId) sentCards.push({ userId: row.id, messageId: r.messageId });
+        else console.error('[activities.adminNotify.card]', r.error);
       } catch (e) { console.error('[activities.adminNotify.card]', e.message); }
+    }
+    // 冗存 message_id：无论从网页端还是一键链接审批，都据此把管理员卡片更新为终态
+    if (sentCards.length) {
+      try {
+        await query(`UPDATE activity_signups SET admin_cards=$1 WHERE id=$2`, [JSON.stringify(sentCards), signupId]);
+      } catch (e) { console.error('[activities.adminNotify.cards]', e.message); }
     }
   } catch (e) { console.error('[activities.adminNotify]', e.message); }
 }

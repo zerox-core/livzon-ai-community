@@ -163,6 +163,13 @@ router.get('/activities/signups', adminRequired, async (req, res) => {
 });
 
 // 一键审批落地页（极简 HTML，免登录签名链接的返回页）
+// 站点地址可用时附「前往管理端」入口，落地页报错/想看详情时都有去处
+function adminLinkHtml() {
+  const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
+  if (!site) return '';
+  return `<div style="margin-top:18px;"><a href="${site}/#admin" style="display:inline-block;padding:9px 22px;border-radius:8px;background:#f0f2f5;color:#333;text-decoration:none;font-size:13px;">前往管理端查看</a></div>`;
+}
+
 function oneclickPage(title, detail, okFlag) {
   const color = okFlag === true ? '#2a9d63' : okFlag === false ? '#c94b4b' : '#666';
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - 丽珠 AI 社团</title></head>` +
@@ -170,6 +177,7 @@ function oneclickPage(title, detail, okFlag) {
     `<div style="background:#fff;border-radius:14px;padding:36px 44px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,0.08);max-width:420px;margin:16px;">` +
     `<div style="font-size:22px;font-weight:700;color:${color};margin-bottom:12px;">${title}</div>` +
     `<div style="font-size:14px;color:#555;line-height:1.7;">${detail}</div>` +
+    adminLinkHtml() +
     `<div style="font-size:12px;color:#999;margin-top:22px;">本页面由报名审批链接打开，可安全关闭</div>` +
     `</div></body></html>`;
 }
@@ -197,6 +205,7 @@ router.get('/signups/oneclick/:id', async (req, res) => {
     }
     await query(`UPDATE activity_signups SET status=$1, updated_at=now() WHERE id=$2 AND status='pending'`, [target, id]);
     notifySignupResult(id, target).catch((e) => console.error('[admin.signupResult]', e.message));
+    updateAdminSignupCards(id, target, '一键审批').catch((e) => console.error('[admin.adminCard]', e.message));
     res.type('html').send(oneclickPage(target === 'approved' ? '✓ 已通过' : '✕ 已驳回',
       '审核结果已通过站内通知和飞书卡片告知报名人。', target === 'approved'));
   } catch (e) {
@@ -239,7 +248,46 @@ async function notifySignupResult(signupId, status) {
   } catch (e) { console.error('[admin.signupResult]', e.message); }
 }
 
-// PATCH /api/admin/activities/signups/:id —— 报名审核（通过/驳回；成功后异步通知本人）
+// 审批完成后管理员卡片的终态（替代原「新报名待审批」卡：去掉一键按钮，只留结果与管理端入口）
+function finalAdminCard({ activityTitle, name, dept, contact, status, handledVia }) {
+  const approved = status === 'approved';
+  const md = [
+    `**活动**：${activityTitle}`,
+    `**报名人**：${name || '—'}${dept ? `（${dept}）` : ''}`,
+    contact ? `**联系方式**：${contact}` : '',
+    '',
+    `**审核结果**：${approved ? '✅ 已通过' : '❌ 已驳回'}（${handledVia}）`,
+    '_该报名已处理完毕，本卡片已同步为最终状态。_',
+  ].filter(Boolean).join('\n');
+  const elements = [{ tag: 'div', text: { tag: 'lark_md', content: md } }];
+  const site = String(process.env.SITE_INTRANET_URL || '').replace(/\/+$/, '');
+  if (site) {
+    elements.push({ tag: 'action', actions: [
+      { tag: 'button', text: { tag: 'plain_text', content: '管理端查看' }, type: 'default', url: site + '/#admin' },
+    ] });
+  }
+  return { config: { wide_screen_mode: true, update_multi: true }, header: { title: { tag: 'plain_text', content: approved ? '报名已通过' : '报名已驳回' }, template: approved ? 'green' : 'red' }, elements };
+}
+
+// 把此前推给各管理员的「新报名待审批」卡片更新为终态（fire-and-forget，失败仅记日志）
+// 触发点：网页端 PATCH 审核 与 一键审批落地页 两条路径，保证卡片状态与网页端始终同步。
+async function updateAdminSignupCards(signupId, status, handledVia) {
+  try {
+    const r = await query(
+      `SELECT s.activity_id, s.name, s.dept, s.contact, s.admin_cards, a.title
+       FROM activity_signups s JOIN activities a ON a.id = s.activity_id WHERE s.id = $1`, [signupId]);
+    const row = r.rows[0];
+    if (!row || !Array.isArray(row.admin_cards) || !row.admin_cards.length) return;
+    const card = finalAdminCard({ activityTitle: row.title, name: row.name, dept: row.dept, contact: row.contact, status, handledVia });
+    for (const c of row.admin_cards) {
+      if (!c || !c.messageId) continue;
+      const u = await lark.updateCardMessage(c.messageId, card);
+      if (!u.ok) console.error('[admin.adminCard.update]', c.messageId, u.error);
+    }
+  } catch (e) { console.error('[admin.adminCard]', e.message); }
+}
+
+// PATCH /api/admin/activities/signups/:id —— 报名审核（通过/驳回；成功后异步通知本人 + 同步管理员卡片）
 router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
@@ -253,6 +301,7 @@ router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
       [status, id]);
     if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '报名记录不存在'));
     notifySignupResult(id, status).catch((e) => console.error('[admin.signupResult]', e.message));
+    updateAdminSignupCards(id, status, '网页端审批').catch((e) => console.error('[admin.adminCard]', e.message));
     res.json(ok(r.rows[0]));
   } catch (e) {
     console.error('[admin.signups.audit]', e);
