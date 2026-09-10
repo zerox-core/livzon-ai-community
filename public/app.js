@@ -536,136 +536,14 @@ var HeroSection = ({ onWorkClick }) => {
       background: "linear-gradient(to top, #0a0a0d, transparent)"
     }
   }), /* @__PURE__ */ React.createElement("div", {
-    className: "hero-header",
     style: {
       position: "relative",
-      textAlign: "center",
-      paddingTop: 112,
-      marginBottom: 32,
-      zIndex: 2
-    }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 12,
-      color: "rgba(255,255,255,0.35)",
-      fontSize: 11,
-      letterSpacing: 4,
-      fontWeight: 400,
-      marginBottom: 18,
-      fontFamily: "'JetBrains Mono', monospace"
-    }
-  }, /* @__PURE__ */ React.createElement("span", {
-    style: { width: 32, height: 1, background: "rgba(255,255,255,0.25)" }
-  }), "LIVZON AI COMMUNITY", /* @__PURE__ */ React.createElement("span", {
-    style: { width: 32, height: 1, background: "rgba(255,255,255,0.25)" }
-  })), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "rgba(255,255,255,0.5)",
-      letterSpacing: 6,
-      marginBottom: 16
-    }
-  }, "第 一 届 丽 珠 AI 创 新 大 赛"), /* @__PURE__ */ React.createElement("h1", {
-    className: "hero-title",
-    style: {
-      fontSize: 56,
-      fontWeight: 300,
-      color: "#fff",
-      letterSpacing: 8,
-      lineHeight: 1.2,
-      fontFamily: "'Noto Serif SC', serif"
-    }
-  }, "获 奖 作 品 展 映")), /* @__PURE__ */ React.createElement("div", {
-    style: {
-   
-/* __PINGCE_SEG_2_9e0d4ea2___END */
-   position: "relative",
       zIndex: 2,
-      opacity: 1
+      opacity: 1,
+      paddingTop: 96
     }
   }, /* @__PURE__ */ React.createElement(CurvedWall, {
     onWorkClick
-  })), /* @__PURE__ */ React.createElement("div", {
-    className: "hero-stats",
-    style: {
-      position: "relative",
-      textAlign: "center",
-      marginTop: 64,
-      zIndex: 3
-    }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "center",
-      gap: 60,
-      color: "#fff",
-      fontFamily: "'Noto Serif SC', serif"
-    }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: { textAlign: "center" }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: { fontSize: 40, fontWeight: 300, letterSpacing: 2 }
-  }, "28"), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "rgba(255,255,255,0.4)",
-      marginTop: 6,
-      letterSpacing: 4
-    }
-  }, "部 作 品")), /* @__PURE__ */ React.createElement("div", {
-    style: { width: 1, background: "rgba(255,255,255,0.15)", alignSelf: "stretch" }
-  }), /* @__PURE__ */ React.createElement("div", {
-    style: { textAlign: "center" }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: { fontSize: 40, fontWeight: 300, letterSpacing: 2 }
-  }, "6"), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "rgba(255,255,255,0.4)",
-      marginTop: 6,
-      letterSpacing: 4
-    }
-  }, "大 赛 道")), /* @__PURE__ */ React.createElement("div", {
-    style: { width: 1, background: "rgba(255,255,255,0.15)", alignSelf: "stretch" }
-  }), /* @__PURE__ */ React.createElement("div", {
-    style: { textAlign: "center" }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: { fontSize: 40, fontWeight: 300, letterSpacing: 2 }
-  }, "128"), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "rgba(255,255,255,0.4)",
-      marginTop: 6,
-      letterSpacing: 4
-    }
-  }, "位 参 与 者")))), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      position: "absolute",
-      bottom: 24,
-      left: "50%",
-      transform: "translateX(-50%)",
-      textAlign: "center",
-      zIndex: 5,
-      opacity: 1
-    }
-  }, /* @__PURE__ */ React.createElement("div", {
-    style: {
-      color: "rgba(255,255,255,0.2)",
-      fontSize: 10,
-      letterSpacing: 4,
-      marginBottom: 10,
-      fontFamily: "'JetBrains Mono', monospace"
-    }
-  }, "SCROLL TO EXPLORE"), /* @__PURE__ */ React.createElement("div", {
-    style: {
-      width: 1,
-      height: 36,
-      margin: "0 auto",
-      background: "linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)",
-      animation: "scrollLine 2.5s ease-in-out infinite"
-    }
   })));
 };
 var AdminPage = () => {
