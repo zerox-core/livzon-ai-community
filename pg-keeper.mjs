@@ -12,6 +12,7 @@
 //   node pg-keeper.mjs doctor         双设备体检：PG 探测 / .env / 连通性 / 回调地址核对
 // 设计原则：
 //   - 唯一会调用 pg_ctl start 的入口是 ensure；其他动作都不动 PG 进程
+//   - PG 注册为 Windows 服务后（scripts/install-pg-service.mjs），ensure/stop 优先走服务启停，pg_ctl 兜底
 //   - 心跳文件 logs/pg-heartbeat 由 db.js 的 query() 调 touch() 节流写入（默认 10s 一次）
 //   - watch 模式下若心跳停止超过 PG_KEEPER_IDLE_STOP_SECS（默认 600s）则停 PG
 //   - PG 安装路径自动探测：环境变量 PG_HOME → E:\PostgreSQL（便携机约定）→ C:\Program Files\PostgreSQL\*
@@ -31,6 +32,8 @@ const SYNC_DIR = join(__dirname, 'sync');
 const ENV_FILE = join(__dirname, 'server', '.env');
 const ENV_EXAMPLE = join(__dirname, 'server', 'env.example');
 const UPLOADS_DIR = join(__dirname, 'public', 'uploads');
+// PG 注册为 Windows 服务时的服务名（scripts/install-pg-service.mjs 固定使用同一名字）
+const PG_SERVICE = process.env.PG_SERVICE || 'postgresql-x64-16';
 
 const DB_HOST = process.env.DB_HOST || '127.0.0.1';
 const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
@@ -132,14 +135,27 @@ function isReady() {
   return r.status === 0;
 }
 
+function serviceExists() {
+  // 已注册 PG Windows 服务时返回 true（sc query 对未注册服务返回非 0）
+  const r = spawnSync('sc', ['query', PG_SERVICE], { encoding: 'utf8' });
+  return r.status === 0;
+}
+
 function startPg() {
   const { ctl, dataDir } = pgPaths();
   if (!ctl) {
     throw new Error('未找到 pg_ctl（已探测 环境变量PG_HOME / E:\\PostgreSQL / C:\\Program Files\\PostgreSQL\\*）。'
       + '请确认本机已装 PostgreSQL，或设置 PG_HOME / PGDATA 环境变量');
   }
+  if (serviceExists()) {
+    const svc = spawnSync('net', ['start', PG_SERVICE], { encoding: 'utf8' });
+    if (svc.status === 0) return;
+    console.log('[pg-keeper] net start ' + PG_SERVICE + ' 未成功（回落 pg_ctl）: '
+      + ((svc.stderr || svc.stdout || '')).trim());
+  }
   const r = spawnSync(ctl, ['start', '-D', dataDir, '-l', PG_LOG, '-w'], { encoding: 'utf-8' });
   if (r.status !== 0) {
+    if (isReady()) return; // 已在运行（如服务实例刚好拉起 / 手工实例已存在）
     throw new Error('pg_ctl start 失败（退出码 ' + r.status + '）: ' + r.stdout + '\n' + r.stderr);
   }
 }
@@ -147,6 +163,10 @@ function startPg() {
 function stopPg() {
   const { ctl, dataDir } = pgPaths();
   if (!ctl) return;
+  if (serviceExists()) {
+    const svc = spawnSync('net', ['stop', PG_SERVICE], { encoding: 'utf8' });
+    if (svc.status === 0) return; // 服务方式停止成功；服务未在运行等情况继续走 pg_ctl 兜底
+  }
   spawnSync(ctl, ['stop', '-D', dataDir, '-m', 'fast'], { encoding: 'utf-8' });
 }
 
