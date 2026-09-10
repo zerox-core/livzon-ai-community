@@ -153,10 +153,13 @@ function startPg() {
     console.log('[pg-keeper] net start ' + PG_SERVICE + ' 未成功（回落 pg_ctl）: '
       + ((svc.stderr || svc.stdout || '')).trim());
   }
-  const r = spawnSync(ctl, ['start', '-D', dataDir, '-l', PG_LOG, '-w'], { encoding: 'utf-8' });
+  // stdio 必须 ignore：postgres 会继承 pg_ctl 的 stdout/stderr 句柄，若用管道收集输出，
+  // spawnSync 会在 pg_ctl 退出后一直等管道 EOF（postgres 长期持有写端）→ ensure 永不返回。
+  // 服务端日志已由 -l PG_LOG 落盘，失败诊断看该文件即可。
+  const r = spawnSync(ctl, ['start', '-D', dataDir, '-l', PG_LOG, '-w'], { stdio: 'ignore' });
   if (r.status !== 0) {
     if (isReady()) return; // 已在运行（如服务实例刚好拉起 / 手工实例已存在）
-    throw new Error('pg_ctl start 失败（退出码 ' + r.status + '）: ' + r.stdout + '\n' + r.stderr);
+    throw new Error('pg_ctl start 失败（退出码 ' + r.status + '），详见 logs/pg.log');
   }
 }
 
