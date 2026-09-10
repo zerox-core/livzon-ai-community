@@ -5276,13 +5276,6 @@ var CommunitySection = () => {
       side.classList.toggle("open", willOpen);
       bk.classList.toggle("show", willOpen);
     };
-    // ===== 滚动后出现右下角悬浮发布按钮 =====
-    var onScrollFab = function () {
-      var fab = document.getElementById("com-fab-pub");
-      if (!fab) return;
-      var y = window.scrollY || document.documentElement.scrollTop || 0;
-      fab.classList.toggle("show", y > 280);
-    };
 
     // ===== 消息中心：回复与通知 / 我的帖子 / 私聊（事件同步站内信 + 飞书推送） =====
     function msgLoadMe(cb) {
@@ -5516,9 +5509,7 @@ var CommunitySection = () => {
       restartBanner();
     });
     loadPostsAndStart();
-    // 悬浮发布按钮：页面滚动超过 280px 出现
-    onScrollFab();
-    window.addEventListener("scroll", onScrollFab, { passive: true });
+    // 悬浮发布按钮：常驻右下角、固定视口，随窗口滚动始终可见
     // 登录态 + 未读数（消息中心侧边栏角标）
     msgLoadMe(function () {
       if (cancelled || !msgMe) return;
@@ -5585,7 +5576,6 @@ var CommunitySection = () => {
       delete window.comOpenPost;
       delete window.comClosePost;
       delete window.comOpenPostFromCard;
-      window.removeEventListener("scroll", onScrollFab);
       if (msgChatTimer) clearInterval(msgChatTimer);
       delete window.comToggleSide;
       delete window.comMsgTab;
@@ -5785,9 +5775,8 @@ var CommunitySection = () => {
     .com-nav-drawer{display:none;align-items:center;gap:6px;background:#fff;border:1px solid #e4e7eb;border-radius:8px;padding:7px 12px;font-size:13px;color:#374151;cursor:pointer;font-family:inherit;font-weight:600;}
     .com-nav-drawer:hover{border-color:#1d6fd1;color:#1d6fd1;}
     .com-side-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.42);z-index:9000;}
-    .com-fab-pub{position:fixed;right:26px;bottom:30px;z-index:80;width:54px;height:54px;border-radius:50%;border:none;background:#1d6fd1;color:#fff;font-size:21px;cursor:pointer;box-shadow:0 8px 24px rgba(29,111,209,0.38);opacity:0;pointer-events:none;transform:translateY(14px);transition:opacity .25s,transform .25s,background .2s;}
-    .com-fab-pub.show{opacity:1;pointer-events:auto;transform:translateY(0);}
-    .com-fab-pub:hover{background:#155bb0;}
+    .com-fab-pub{position:fixed;right:26px;bottom:30px;z-index:80;width:54px;height:54px;border-radius:50%;border:none;background:#1d6fd1;color:#fff;font-size:21px;cursor:pointer;box-shadow:0 8px 24px rgba(29,111,209,0.38);opacity:1;pointer-events:auto;transition:background .2s;}
+        .com-fab-pub:hover{background:#155bb0;}
     .com-msg-item{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid #f2f4f6;align-items:flex-start;}
     .com-msg-item:hover{background:#f7f9fb;}
     .com-msg-dot{width:8px;height:8px;border-radius:50%;background:#e5484d;flex:0 0 8px;margin-top:6px;}
