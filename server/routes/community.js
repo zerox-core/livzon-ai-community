@@ -11,8 +11,34 @@ const { checkRules } = require('../validate');
 const { authRequired } = require('../middleware/auth');
 const { genId, fmtTime, userSnapshot, likeToggleSQL, utf8Field } = require('../lib/community-core');
 const { saveUploadedFile, createAsset } = require('../lib/asset-store');
+const { LarkClient } = require('../lark-client');
 
 const router = express.Router();
+const lark = new LarkClient(process.env);
+
+// ==================== 站内信 + 飞书推送（通知统一出口） ====================
+// 写 notifications 站内信；若用户绑定过飞书 open_id，再尽力推一条机器人单聊（失败不影响主流程）
+async function notifyUser(userId, type, title, body, link) {
+  try {
+    await query(
+      `INSERT INTO notifications (user_id, type, title, body, link, read, created_at)
+       VALUES ($1,$2,$3,$4,$5,FALSE,now())`,
+      [userId, type, String(title || '').slice(0, 100), String(body || '').slice(0, 300), String(link || '')]);
+  } catch (e) {
+    console.error('[community.notify]', e);
+    return;
+  }
+  try {
+    const u = await query('SELECT open_id FROM users WHERE id=$1', [userId]);
+    const openId = u.rows[0] && u.rows[0].open_id;
+    if (openId && /^ou_/.test(String(openId))) {
+      // 尽力而为：飞书推送失败仅记日志，不阻塞业务响应
+      lark.sendTextToUser(openId, '【丽珠 AI · 社团社区】' + title + '\n' + body + '\n（打开社团社区 → 消息中心查看）')
+        .then((r) => { if (!r.ok) console.error('[community.notify.lark]', r.error); })
+        .catch((e) => console.error('[community.notify.lark]', e.message));
+    }
+  } catch (e) { console.error('[community.notify.lark]', e); }
+}
 
 const SECTION_POST = ['resource', 'tutorial', 'qa', 'chat'];   // 发帖分区（featured 为管理侧，v7）
 const TAGS = ['featured', 'tutorial', 'resource'];
@@ -245,11 +271,13 @@ router.post('/posts/:id/comments', authRequired, async (req, res) => {
   if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
   const postId = String(req.params.id);
   try {
-    const p = await query('SELECT id FROM posts WHERE id=$1 AND deleted=FALSE', [postId]);
+    const p = await query('SELECT id, user_id FROM posts WHERE id=$1 AND deleted=FALSE', [postId]);
     if (!p.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '帖子不存在'));
+    let parentAuthorId = null;
     if (casted.parent_id) {
-      const par = await query('SELECT id FROM comments WHERE id=$1 AND post_id=$2 AND deleted=FALSE', [casted.parent_id, postId]);
+      const par = await query('SELECT id, user_id FROM comments WHERE id=$1 AND post_id=$2 AND deleted=FALSE', [casted.parent_id, postId]);
       if (!par.rows.length) return res.status(400).json(err(ErrorCodes.VALIDATION, '回复的评论不存在'));
+      parentAuthorId = par.rows[0].user_id || null;
     }
     const snap = await userSnapshot(req);
     const id = genId('c');
@@ -258,6 +286,15 @@ router.post('/posts/:id/comments', authRequired, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,0,FALSE,now()) RETURNING *`,
       [id, postId, casted.parent_id || null, req.session.userId, snap.name, snap.dept, casted.content]);
     const c = r.rows[0];
+    // 消息中心 + 飞书同步：帖子作者（非本人）收到「评论」通知；被回复人（非本人且非帖子作者）收到「回复」通知
+    const postAuthorId = p.rows[0].user_id || null;
+    const ctext = String(casted.content || '').slice(0, 80);
+    if (postAuthorId && postAuthorId !== req.session.userId) {
+      notifyUser(postAuthorId, 'reply', snap.name + ' 评论了你的帖子', ctext, 'community').catch(() => {});
+    }
+    if (parentAuthorId && parentAuthorId !== req.session.userId && parentAuthorId !== postAuthorId) {
+      notifyUser(parentAuthorId, 'reply', snap.name + ' 回复了你的评论', ctext, 'community').catch(() => {});
+    }
     res.status(201).json(ok({ comment: {
       id: c.id, post_id: c.post_id, parent_id: c.parent_id || null,
       author: c.author, dept: c.dept || '', text: c.text,
@@ -426,6 +463,158 @@ const configPutHandler = async (req, res) => {
     res.status(500).json(err(ErrorCodes.INTERNAL));
   }
 };
+
+
+// ==================== 消息中心：我的帖子 + 私聊（站内信 / 飞书同步） ====================
+
+// GET /api/community/my/overview —— 我的帖子 + 每帖最近 5 条评论（消息中心「我的帖子」页）
+router.get('/my/overview', authRequired, async (req, res) => {
+  const me = req.session.userId;
+  try {
+    const r = await query(
+      `SELECT ${POST_COLS} FROM posts p ${CC_JOIN}
+       WHERE p.deleted = FALSE AND p.user_id = $2
+       ORDER BY p.created_at DESC LIMIT 50`,
+      [me, me]);
+    const posts = [];
+    const byId = new Map();
+    for (const row of r.rows) {
+      const post = mapPost(row);
+      post.comments = [];
+      posts.push(post);
+      byId.set(post.id, post);
+    }
+    if (posts.length) {
+      const c = await query(
+        `SELECT * FROM (
+           SELECT c.*, ROW_NUMBER() OVER (PARTITION BY c.post_id ORDER BY c.created_at DESC) AS rn
+           FROM comments c
+           WHERE c.post_id = ANY($1::text[]) AND c.deleted = FALSE
+         ) t WHERE rn <= 5 ORDER BY created_at ASC`,
+        [posts.map((x) => x.id)]);
+      for (const row of c.rows) {
+        const post = byId.get(row.post_id);
+        if (post) post.comments.push({
+          id: row.id, author: row.author, dept: row.dept || '',
+          text: row.text, time: fmtTime(row.created_at), likes: row.likes | 0,
+        });
+      }
+    }
+    res.json(ok({ posts }));
+  } catch (e) {
+    console.error('[community.my.overview]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/community/dm/users —— 可私聊社员列表（排除自己；最近聊过的排前面）
+router.get('/dm/users', authRequired, async (req, res) => {
+  const me = req.session.userId;
+  try {
+    const r = await query(
+      `SELECT u.id, u.name, u.department
+       FROM users u
+       WHERE u.id <> $1 AND u.name <> ''
+       ORDER BY (SELECT max(d.created_at) FROM direct_messages d
+                 WHERE (d.sender_id=u.id AND d.receiver_id=$1) OR (d.sender_id=$1 AND d.receiver_id=u.id)) DESC NULLS LAST,
+                u.name ASC
+       LIMIT 100`, [me]);
+    res.json(ok({ users: r.rows.map((u) => ({ id: u.id, name: u.name, dept: u.department || '' })) }));
+  } catch (e) {
+    console.error('[community.dm.users]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/community/dm/conversations —— 私聊会话列表（最后一条摘要 + 未读数）
+router.get('/dm/conversations', authRequired, async (req, res) => {
+  const me = req.session.userId;
+  try {
+    const r = await query(
+      `SELECT * FROM (
+         SELECT DISTINCT ON (peer_id) peer_id, text, sender_id, created_at
+         FROM (
+           SELECT CASE WHEN sender_id=$1 THEN receiver_id ELSE sender_id END AS peer_id,
+                  text, sender_id, created_at
+           FROM direct_messages WHERE sender_id=$1 OR receiver_id=$1
+         ) t ORDER BY peer_id, created_at DESC
+       ) m
+       JOIN users u ON u.id = m.peer_id
+       ORDER BY m.created_at DESC LIMIT 50`, [me]);
+    const unreadR = await query(
+      `SELECT sender_id, count(*)::int AS c FROM direct_messages
+       WHERE receiver_id=$1 AND read=FALSE GROUP BY sender_id`, [me]);
+    const unreadMap = new Map(unreadR.rows.map((x) => [x.sender_id, x.c]));
+    res.json(ok({ conversations: r.rows.map((row) => ({
+      userId: row.peer_id,
+      name: row.name || '社员',
+      dept: row.department || '',
+      lastText: String(row.text || '').slice(0, 60),
+      lastFromMe: row.sender_id === me,
+      time: fmtTime(row.created_at),
+      unread: unreadMap.get(row.peer_id) || 0,
+    })) }));
+  } catch (e) {
+    console.error('[community.dm.conversations]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/community/dm/with/:uid —— 与某人的私聊记录（最近 100 条，顺带把对方发来的标记已读）
+router.get('/dm/with/:uid', authRequired, async (req, res) => {
+  const me = req.session.userId;
+  const other = parseInt(req.params.uid, 10);
+  if (!Number.isInteger(other) || other <= 0 || other === me) {
+    return res.status(400).json(err(ErrorCodes.VALIDATION, '无效的私聊对象'));
+  }
+  try {
+    const u = await query('SELECT id, name, department FROM users WHERE id=$1', [other]);
+    if (!u.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '用户不存在'));
+    const r = await query(
+      `SELECT id, sender_id, receiver_id, text, created_at FROM direct_messages
+       WHERE (sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1)
+       ORDER BY created_at DESC LIMIT 100`, [me, other]);
+    await query(`UPDATE direct_messages SET read=TRUE WHERE sender_id=$1 AND receiver_id=$2 AND read=FALSE`, [other, me]);
+    res.json(ok({
+      user: { id: u.rows[0].id, name: u.rows[0].name || '社员', dept: u.rows[0].department || '' },
+      messages: r.rows.reverse().map((m) => ({
+        id: m.id, fromMe: m.sender_id === me, text: m.text, time: fmtTime(m.created_at),
+      })),
+    }));
+  } catch (e) {
+    console.error('[community.dm.history]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// POST /api/community/dm/with/:uid —— 发送私聊（站内信 + 飞书推送同步给收件人）
+router.post('/dm/with/:uid', authRequired, async (req, res) => {
+  const rules = { content: { required: true, type: 'string', max: 1000 } };
+  const { valid, errors, casted } = checkRules(req.body || {}, rules);
+  if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+  const me = req.session.userId;
+  const other = parseInt(req.params.uid, 10);
+  if (!Number.isInteger(other) || other <= 0 || other === me) {
+    return res.status(400).json(err(ErrorCodes.VALIDATION, '无效的私聊对象'));
+  }
+  try {
+    const u = await query('SELECT id FROM users WHERE id=$1', [other]);
+    if (!u.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '用户不存在'));
+    const snap = await userSnapshot(req);
+    const id = genId('d');
+    const r = await query(
+      `INSERT INTO direct_messages (id, sender_id, receiver_id, text, read, created_at)
+       VALUES ($1,$2,$3,$4,FALSE,now()) RETURNING *`,
+      [id, me, other, casted.content]);
+    const m = r.rows[0];
+    // 收件人通知：站内信 + 飞书（尽力而为，不阻塞响应）
+    notifyUser(other, 'dm', snap.name + ' 给你发来一条私聊', String(casted.content).slice(0, 80), 'community').catch(() => {});
+    res.status(201).json(ok({ message: { id: m.id, fromMe: true, text: m.text, time: fmtTime(m.created_at) } }));
+  } catch (e) {
+    console.error('[community.dm.send]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
 
 module.exports = router;
 // 具名导出：契约路径别名 + 管理端处理器（admin.js / server.js 挂载用）

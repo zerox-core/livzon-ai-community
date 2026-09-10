@@ -4396,6 +4396,19 @@ var CommunitySection = () => {
     var pubSection = "chat";   // 发布页选中的分区
     var pubDraft = "";         // 发布页草稿（跨渲染保留）
     var searchQ = "";          // 信息流搜索关键词
+    var msgUnread = 0;         // 消息中心未读数（侧边栏角标）
+    var msgMe = null;          // 登录用户（消息中心用）
+    var msgTab = "feed";       // feed=回复与通知 mine=我的帖子 dm=私聊
+    var msgNotifs = null;      // 通知列表缓存
+    var msgMine = null;        // 我的帖子（含评论）
+    var msgMineOpen = {};      // 我的帖子：展开评论的下标
+    var msgConvs = null;       // 私聊会话列表
+    var msgUsers = null;       // 可私聊社员列表
+    var msgDmPick = false;     // 新私聊选人面板开关
+    var msgChatUid = null;     // 当前私聊对象
+    var msgChatUser = null;    // 当前私聊对象信息
+    var msgChatMsgs = null;   // 当前会话消息
+    var msgChatTimer = null;   // 私聊轮询定时器
 
     var SECTIONS = [
       { key: "all", label: "首页", icon: "◈", desc: "全部动态" },
@@ -4403,7 +4416,8 @@ var CommunitySection = () => {
       { key: "resource", label: "资源分享", icon: "⤓", desc: "模板 / 工具 / 物料" },
       { key: "tutorial", label: "教程攻略", icon: "✎", desc: "上手与避坑" },
       { key: "qa", label: "问答求助", icon: "?", desc: "有问必答" },
-      { key: "chat", label: "闲聊灌水", icon: "☁", desc: "碎碎念与日常" }
+      { key: "chat", label: "闲聊灌水", icon: "☁", desc: "碎碎念与日常" },
+      { key: "msgs", label: "消息中心", icon: "✉", desc: "回复动态与私聊" }
     ];
     function sectionOf(p) {
       if (p.section) return p.section;
@@ -4415,6 +4429,7 @@ var CommunitySection = () => {
       return k;
     }
     function sectionCount(k) {
+      if (k === "msgs") return msgUnread;
       if (k === "all") return postsCache.length;
       return postsCache.filter(function (p) { return sectionOf(p) === k; }).length;
     }
@@ -4747,7 +4762,7 @@ var CommunitySection = () => {
         var on = curSection === s.key;
         return "<button class='com-side-item" + (on ? " on" : "") + "' onclick=\"window.comGoSection&&window.comGoSection('" + s.key + "')\">" +
           "<span class='com-side-ico'>" + s.icon + "</span><span class='com-side-label'>" + s.label + "</span>" +
-          "<span class='com-side-count'>" + sectionCount(s.key) + "</span></button>";
+          (sectionCount(s.key) ? "<span class='com-side-count'>" + sectionCount(s.key) + "</span>" : "") + "</button>";
       }).join("");
       h += "<div class='com-side-foot'>" + (postsApi ? "API" : "SEED") + " · 30s 自动刷新</div>";
       el.innerHTML = h;
@@ -4812,6 +4827,11 @@ var CommunitySection = () => {
         if (pi) pi.focus();
         return;
       }
+      if (curSection === "msgs") {
+        el.innerHTML = "<div id='com-msgcenter'><div class='com-empty'>加载消息中心…</div></div>";
+        renderMsgCenter();
+        return;
+      }
       el.innerHTML =
         "<div id='com-top'></div>" +
         "<div class='com-search'>" +
@@ -4828,6 +4848,7 @@ var CommunitySection = () => {
       ref.current.innerHTML =
         "<div class='com-wrap'>" +
         "<div class='com-navbar'>" +
+        "<button class='com-nav-drawer' onclick='window.comToggleSide&&window.comToggleSide()'>☰ 分区</button>" +
         "<div class='com-nav-left'><img class='com-nav-logo-img' src='" + LOGO + "' alt='丽珠' /><b>社团社区</b><span class='com-nav-sub'>LIVZON COMMUNITY</span></div>" +
         "<div class='com-nav-right'>" +
         "<button class='com-nav-pub' onclick='window.comOpenPublish&&window.comOpenPublish()'>✏️ 发布</button>" +
@@ -4838,6 +4859,8 @@ var CommunitySection = () => {
         "<aside class='com-side' id='com-side'></aside>" +
         "<main class='com-main' id='com-main'></main>" +
         "</div>" +
+        "<div class='com-side-backdrop' id='com-side-backdrop' onclick='window.comToggleSide&&window.comToggleSide(false)'></div>" +
+        "<button class='com-fab-pub' id='com-fab-pub' title='发布新帖' onclick='window.comOpenPublish&&window.comOpenPublish()'>✏️</button>" +
         "<div id='com-lightbox' onclick='window.comViewerClose&&window.comViewerClose()'></div>" +
         "</div>";
     }
@@ -4977,6 +5000,8 @@ var CommunitySection = () => {
       curSection = SECTIONS.some(function (s) { return s.key === k; }) ? k : "all";
       pubOpen = false;
       detailPid = null;
+      if (curSection !== "msgs" && msgChatTimer) { clearInterval(msgChatTimer); msgChatTimer = null; msgChatUid = null; }
+      if (window.comToggleSide) window.comToggleSide(false);
       renderSidebar();
       renderMain();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -5241,6 +5266,246 @@ var CommunitySection = () => {
         }).catch(function () {});
     };
 
+
+    // ===== 窄屏侧边抽屉（≤900px 侧边栏改为抽屉，不再挤占顶部） =====
+    window.comToggleSide = function (open) {
+      var side = document.getElementById("com-side");
+      var bk = document.getElementById("com-side-backdrop");
+      if (!side || !bk) return;
+      var willOpen = typeof open === "boolean" ? open : !side.classList.contains("open");
+      side.classList.toggle("open", willOpen);
+      bk.classList.toggle("show", willOpen);
+    };
+    // ===== 滚动后出现右下角悬浮发布按钮 =====
+    var onScrollFab = function () {
+      var fab = document.getElementById("com-fab-pub");
+      if (!fab) return;
+      var y = window.scrollY || document.documentElement.scrollTop || 0;
+      fab.classList.toggle("show", y > 280);
+    };
+
+    // ===== 消息中心：回复与通知 / 我的帖子 / 私聊（事件同步站内信 + 飞书推送） =====
+    function msgLoadMe(cb) {
+      if (msgMe) { cb(); return; }
+      fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
+        if (j && j.authenticated && j.data) msgMe = j.data;
+        cb();
+      }).catch(function () { cb(); });
+    }
+    function renderMsgCenter() {
+      var host = document.getElementById("com-msgcenter");
+      if (!host || cancelled) return;
+      var h = "<div class='com-detail'>";
+      h += "<button class='com-detail-back' onclick=\"window.comGoSection&&window.comGoSection('all')\">← 返回社区信息流</button>";
+      if (!msgMe) {
+        h += "<div class='com-empty'>登录后可查看消息中心：帖子回复、私聊与系统通知都会汇总在这里，并同步推送到飞书。</div></div>";
+        host.innerHTML = h;
+        return;
+      }
+      h += "<div class='com-tabs'>" +
+        "<button class='com-tab" + (msgTab === "feed" ? " on" : "") + "' onclick=\"window.comMsgTab&&window.comMsgTab('feed')\">回复与通知</button>" +
+        "<button class='com-tab" + (msgTab === "mine" ? " on" : "") + "' onclick=\"window.comMsgTab&&window.comMsgTab('mine')\">我的帖子</button>" +
+        "<button class='com-tab" + (msgTab === "dm" ? " on" : "") + "' onclick=\"window.comMsgTab&&window.comMsgTab('dm')\">私聊</button>" +
+        "<span class='com-tab-hint'>站内 + 飞书同步</span></div>";
+      h += "<div id='com-msgbody'></div></div>";
+      host.innerHTML = h;
+      renderMsgBody();
+    }
+    function renderMsgBody() {
+      var el = document.getElementById("com-msgbody");
+      if (!el || cancelled) return;
+      if (msgTab === "feed") { renderMsgFeed(el); return; }
+      if (msgTab === "mine") { renderMsgMine(el); return; }
+      renderDm(el);
+    }
+    function renderMsgFeed(el) {
+      el.innerHTML = "<div class='com-feedbox'><div class='com-empty'>加载通知…</div></div>";
+      fetch("/api/my/messages").then(function (r) { return r.json(); }).then(function (j) {
+        if (cancelled) return;
+        var list = (j && j.ok && j.data && j.data.messages) || [];
+        msgUnread = (j && j.ok && j.data && j.data.unread) || 0;
+        renderSidebar();
+        var h = "<div class='com-msg-head'><span>共 " + list.length + " 条 · 未读 " + msgUnread + "</span>" +
+          (msgUnread ? "<button class='com-tool' onclick='window.comMsgReadAll&&window.comMsgReadAll()'>全部标为已读</button>" : "") + "</div>";
+        h += "<div class='com-feedbox'>" + (list.length ? list.map(function (n) {
+          return "<div class='com-msg-item'>" +
+            "<span class='com-msg-dot" + (n.read ? " read" : "") + "'></span>" +
+            "<div class='com-msg-main'><div class='com-msg-title'>" + esc(n.title || "通知") + "</div>" +
+            "<div class='com-msg-body'>" + esc(String(n.body || "").slice(0, 120)) + "</div></div>" +
+            "<span class='com-msg-time'>" + esc(String(n.created_at || "").slice(5, 16).replace("T", " ")) + "</span>" +
+            "</div>";
+        }).join("") : "<div class='com-empty'>暂无通知——有人评论你的帖子或给你发私聊时会出现在这里，并同步推送到飞书。</div>") + "</div>";
+        el.innerHTML = h;
+      }).catch(function () { el.innerHTML = "<div class='com-feedbox'><div class='com-empty'>通知加载失败，稍后重试。</div></div>"; });
+    }
+    function renderMsgMine(el) {
+      el.innerHTML = "<div class='com-feedbox'><div class='com-empty'>加载我的帖子…</div></div>";
+      fetch("/api/community/my/overview").then(function (r) { return r.json(); }).then(function (j) {
+        if (cancelled) return;
+        var posts = (j && j.ok && j.data && j.data.posts) || [];
+        msgMine = posts;
+        var h = "<div class='com-feedbox'>" + (posts.length ? posts.map(function (p, i) {
+          var cmts = p.comments || [];
+          var open = !!msgMineOpen[i];
+          return "<div class='com-mine-post'>" +
+            "<div class='com-post-head'><b>" + esc(p.author) + "</b><i>我发布的</i><span class='com-post-time'>" + esc(p.time) + "</span></div>" +
+            "<div class='com-post-text com-post-clickable' onclick=\"window.comMsgOpenPost&&window.comMsgOpenPost('" + esc(p.id) + "')\">" + esc(String(p.text || "").slice(0, 120)) + "</div>" +
+            "<div class='com-post-acts'>" +
+            "<span class='com-act'>💬 " + (p.commentCount || cmts.length || 0) + " 条回复</span>" +
+            "<span class='com-act'>♥ " + (p.likes || 0) + "</span>" +
+            "<button class='com-act' onclick=\"window.comMsgToggleMine&&window.comMsgToggleMine(" + i + ")\">" + (open ? "收起回复" : "查看回复") + "</button>" +
+            "</div>" +
+            (open ? (cmts.length ? cmts.map(function (c) {
+              return "<div class='com-msg-item'><div class='com-msg-main'><div class='com-msg-title'>" + esc(c.author) + (c.dept ? " · " + esc(c.dept) : "") + "</div><div class='com-msg-body'>" + esc(c.text) + "</div></div><span class='com-msg-time'>" + esc(c.time) + "</span></div>";
+            }).join("") : "<div class='com-empty'>这条帖子还没有回复。</div>") +
+              "<button class='com-inline-cancel' onclick=\"window.comMsgOpenPost&&window.comMsgOpenPost('" + esc(p.id) + "')\">去帖子详情页回复 →</button>" : "") +
+            "</div>";
+        }).join("") : "<div class='com-empty'>你还没有发过帖子——点右下角 ✏️ 发布第一条。</div>") + "</div>";
+        el.innerHTML = h;
+      }).catch(function () { el.innerHTML = "<div class='com-feedbox'><div class='com-empty'>加载失败，稍后重试。</div></div>"; });
+    }
+    function msgOpenMyPost(pid) {
+      var p = findPost(pid);
+      if (!p && msgMine) {
+        for (var i = 0; i < msgMine.length; i++) {
+          if (msgMine[i].id === pid) {
+            postsCache.unshift({ id: msgMine[i].id, author: msgMine[i].author, dept: msgMine[i].dept, text: msgMine[i].text, time: msgMine[i].time, likes: msgMine[i].likes, liked: msgMine[i].liked, pinned: msgMine[i].pinned, tag: msgMine[i].tag, commentCount: msgMine[i].commentCount, work: msgMine[i].work, images: msgMine[i].images, attachments: msgMine[i].attachments, section: msgMine[i].section, comments: [], _commentsLoaded: false });
+            break;
+          }
+        }
+      }
+      curSection = "all";
+      window.comOpenPost(pid);
+    }
+    function loadDmData(cb) {
+      Promise.all([
+        fetch("/api/community/dm/conversations").then(function (r) { return r.json(); }).catch(function () { return null; }),
+        msgUsers ? Promise.resolve(null) : fetch("/api/community/dm/users").then(function (r) { return r.json(); }).catch(function () { return null; })
+      ]).then(function (rs) {
+        var c = rs[0], u = rs[1];
+        if (c && c.ok && c.data) msgConvs = c.data.conversations || [];
+        if (u && u.ok && u.data) msgUsers = u.data.users || [];
+        cb();
+      });
+    }
+    function dmMsgsHtml() {
+      var msgs = msgChatMsgs || [];
+      if (!msgs.length) return "<div class='com-empty'>还没有消息，打个招呼吧。</div>";
+      return msgs.map(function (m) {
+        return "<div class='com-dm-time" + (m.fromMe ? " me" : "") + "'>" + esc(m.time) + "</div>" +
+          "<div class='com-dm-bubble " + (m.fromMe ? "me" : "them") + "'>" + esc(m.text) + "</div>";
+      }).join("");
+    }
+    function updateDmMsgsBox() {
+      var box = document.getElementById("com-dm-msgs");
+      if (box) { box.innerHTML = dmMsgsHtml(); box.scrollTop = box.scrollHeight; }
+      else renderMsgBody();
+    }
+    function renderDm(el) {
+      el.innerHTML = "<div class='com-empty'>加载私聊…</div>";
+      loadDmData(function () {
+        if (cancelled) return;
+        var h = "<div class='com-dm-layout'>";
+        h += "<div class='com-dm-list'>";
+        h += "<button class='com-dm-row" + (msgDmPick ? " on" : "") + "' onclick='window.comDmNew&&window.comDmNew()'><span class='com-side-ico'>＋</span><span class='com-dm-name'>发起新私聊</span></button>";
+        if (msgDmPick) {
+          h += "<div class='com-dm-newlist'>" + ((msgUsers || []).map(function (u) {
+            return "<button class='com-dm-row' onclick=\"window.comDmPick&&window.comDmPick(" + u.id + ")\"><span class='com-dm-name'>" + esc(u.name) + (u.dept ? " · " + esc(u.dept) : "") + "</span></button>";
+          }).join("") || "<div class='com-empty'>暂无可私聊的社员。</div>") + "</div>";
+        }
+        h += (msgConvs || []).map(function (c) {
+          return "<button class='com-dm-row" + (msgChatUid === c.userId ? " on" : "") + "' onclick=\"window.comDmOpen&&window.comDmOpen(" + c.userId + ")\">" +
+            "<span class='com-dm-name'>" + esc(c.name) + (c.lastText ? " · " + esc(String(c.lastText).slice(0, 8)) : "") + "</span>" +
+            (c.unread ? "<span class='com-dm-badge'>" + c.unread + "</span>" : "") + "</button>";
+        }).join("") || "<div class='com-empty'>还没有会话。</div>";
+        h += "</div>";
+        h += "<div class='com-dm-chat'>";
+        if (!msgChatUid) {
+          h += "<div class='com-dm-head'>选择一个会话，或点左侧「＋ 发起新私聊」</div><div class='com-dm-msgs'><div class='com-empty'>私聊窗口会显示在这里；收到私聊会同步推送飞书。</div></div>";
+        } else {
+          h += "<div class='com-dm-head'>💬 " + esc((msgChatUser && msgChatUser.name) || "私聊") + (msgChatUser && msgChatUser.dept ? " · " + esc(msgChatUser.dept) : "") + "</div>";
+          h += "<div class='com-dm-msgs' id='com-dm-msgs'>" + dmMsgsHtml() + "</div>";
+          h += "<div class='com-dm-input'>" +
+            "<textarea id='com-dm-input' rows='2' placeholder='输入私聊内容…'></textarea>" +
+            "<button class='com-send' onclick='window.comDmSend&&window.comDmSend()'>发送</button></div>";
+        }
+        h += "</div></div>";
+        el.innerHTML = h;
+        var box = document.getElementById("com-dm-msgs");
+        if (box) box.scrollTop = box.scrollHeight;
+        var ta = document.getElementById("com-dm-input");
+        if (ta) {
+          ta.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); if (window.comDmSend) window.comDmSend(); }
+          });
+          ta.focus();
+        }
+      });
+    }
+    function loadDmChat(startTimer) {
+      if (!msgChatUid || cancelled) return;
+      fetch("/api/community/dm/with/" + encodeURIComponent(String(msgChatUid))).then(function (r) { return r.json(); }).then(function (j) {
+        if (cancelled || !msgChatUid) return;
+        if (j && j.ok && j.data) {
+          if (j.data.user) msgChatUser = j.data.user;
+          msgChatMsgs = j.data.messages || [];
+          if (startTimer) renderMsgBody(); else updateDmMsgsBox();
+          if (msgConvs) for (var i = 0; i < msgConvs.length; i++) if (msgConvs[i].userId === msgChatUid) msgConvs[i].unread = 0;
+        }
+        if (startTimer && !msgChatTimer) {
+          msgChatTimer = setInterval(function () {
+            if (cancelled) { clearInterval(msgChatTimer); msgChatTimer = null; return; }
+            if (msgTab === "dm" && msgChatUid) { loadDmChat(false); loadDmData(function () { }); }
+          }, 8000);
+        }
+      }).catch(function () {});
+    }
+    window.comMsgTab = function (t) {
+      msgTab = t;
+      if (msgChatTimer && t !== "dm") { clearInterval(msgChatTimer); msgChatTimer = null; }
+      renderMsgCenter();
+    };
+    window.comMsgReadAll = function () {
+      fetch("/api/my/messages/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then(function () { renderMsgBody(); }).catch(function () {});
+    };
+    window.comMsgToggleMine = function (i) {
+      msgMineOpen[i] = !msgMineOpen[i];
+      renderMsgBody();
+    };
+    window.comMsgOpenPost = function (pid) { msgOpenMyPost(pid); };
+    window.comDmNew = function () { msgDmPick = !msgDmPick; renderMsgBody(); };
+    window.comDmPick = function (uid) { msgDmPick = false; window.comDmOpen(uid); };
+    window.comDmOpen = function (uid) {
+      msgChatUid = uid;
+      msgChatUser = null;
+      msgChatMsgs = [];
+      if (msgUsers) for (var i = 0; i < msgUsers.length; i++) if (msgUsers[i].id === uid) msgChatUser = msgUsers[i];
+      if (msgConvs) for (var j = 0; j < msgConvs.length; j++) if (msgConvs[j].userId === uid && msgConvs[j].name) msgChatUser = { name: msgConvs[j].name, dept: msgConvs[j].dept };
+      renderMsgBody();
+      loadDmChat(true);
+    };
+    window.comDmSend = function () {
+      if (!msgChatUid) return;
+      var ta = document.getElementById("com-dm-input");
+      var text = ((ta && ta.value) || "").trim();
+      if (!text) { if (ta) ta.focus(); return; }
+      var btn = document.querySelector(".com-dm-input .com-send");
+      if (btn) btn.disabled = true;
+      fetch("/api/community/dm/with/" + encodeURIComponent(String(msgChatUid)), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text })
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j && j.ok && j.data && j.data.message) {
+          msgChatMsgs = (msgChatMsgs || []).concat([j.data.message]);
+          if (ta) ta.value = "";
+          updateDmMsgsBox();
+          if (ta) ta.focus();
+        }
+        if (btn) btn.disabled = false;
+      }).catch(function () { if (btn) btn.disabled = false; });
+    };
+
     // ===== 启动 =====
     renderShell();
     renderSidebar();
@@ -5251,6 +5516,17 @@ var CommunitySection = () => {
       restartBanner();
     });
     loadPostsAndStart();
+    // 悬浮发布按钮：页面滚动超过 280px 出现
+    onScrollFab();
+    window.addEventListener("scroll", onScrollFab, { passive: true });
+    // 登录态 + 未读数（消息中心侧边栏角标）
+    msgLoadMe(function () {
+      if (cancelled || !msgMe) return;
+      fetch("/api/my/messages").then(function (r) { return r.json(); }).then(function (j) {
+        if (cancelled) return;
+        if (j && j.ok && j.data) { msgUnread = j.data.unread || 0; renderSidebar(); }
+      }).catch(function () {});
+    });
     function loadPostsAndStart() {
       fetchPostsRaw(sortMode).then(function (res) {
         if (cancelled) return;
@@ -5309,6 +5585,17 @@ var CommunitySection = () => {
       delete window.comOpenPost;
       delete window.comClosePost;
       delete window.comOpenPostFromCard;
+      window.removeEventListener("scroll", onScrollFab);
+      if (msgChatTimer) clearInterval(msgChatTimer);
+      delete window.comToggleSide;
+      delete window.comMsgTab;
+      delete window.comMsgReadAll;
+      delete window.comMsgToggleMine;
+      delete window.comMsgOpenPost;
+      delete window.comDmNew;
+      delete window.comDmPick;
+      delete window.comDmOpen;
+      delete window.comDmSend;
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f6f7f8", color: "#0f1419", padding: "88px 16px 80px", minHeight: "100vh" } }, React.createElement("style", null, `
@@ -5494,11 +5781,56 @@ var CommunitySection = () => {
     .com-lb-prev{left:-60px;}
     .com-lb-next{right:-60px;}
     .com-lb-count{position:absolute;bottom:-42px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;font-family:'JetBrains Mono',monospace;background:rgba(0,0,0,0.5);padding:4px 12px;border-radius:999px;}
+    .com-wrap ::selection{background:rgba(29,111,209,0.30);color:#0f1419;}
+    .com-nav-drawer{display:none;align-items:center;gap:6px;background:#fff;border:1px solid #e4e7eb;border-radius:8px;padding:7px 12px;font-size:13px;color:#374151;cursor:pointer;font-family:inherit;font-weight:600;}
+    .com-nav-drawer:hover{border-color:#1d6fd1;color:#1d6fd1;}
+    .com-side-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.42);z-index:9000;}
+    .com-fab-pub{position:fixed;right:26px;bottom:30px;z-index:80;width:54px;height:54px;border-radius:50%;border:none;background:#1d6fd1;color:#fff;font-size:21px;cursor:pointer;box-shadow:0 8px 24px rgba(29,111,209,0.38);opacity:0;pointer-events:none;transform:translateY(14px);transition:opacity .25s,transform .25s,background .2s;}
+    .com-fab-pub.show{opacity:1;pointer-events:auto;transform:translateY(0);}
+    .com-fab-pub:hover{background:#155bb0;}
+    .com-msg-item{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid #f2f4f6;align-items:flex-start;}
+    .com-msg-item:hover{background:#f7f9fb;}
+    .com-msg-dot{width:8px;height:8px;border-radius:50%;background:#e5484d;flex:0 0 8px;margin-top:6px;}
+    .com-msg-dot.read{background:#e4e7eb;}
+    .com-msg-main{flex:1;min-width:0;}
+    .com-msg-title{font-size:13px;color:#0f1419;font-weight:700;}
+    .com-msg-body{font-size:12px;color:#6b7280;margin-top:2px;line-height:1.6;word-break:break-word;}
+    .com-msg-time{font-family:'JetBrains Mono',monospace;font-size:10px;color:#9aa3ad;flex:0 0 auto;margin-top:2px;}
+    .com-msg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;}
+    .com-mine-post{padding:12px 14px;border-bottom:1px solid #f2f4f6;}
+    .com-mine-post:last-child{border-bottom:none;}
+    .com-dm-layout{display:flex;gap:12px;align-items:stretch;}
+    .com-dm-list{flex:0 0 250px;background:#fff;border:1px solid #e4e7eb;border-radius:10px;overflow-y:auto;max-height:560px;padding:6px;}
+    .com-dm-row{display:flex;gap:8px;width:100%;background:none;border:none;border-radius:8px;padding:8px 10px;font-size:13px;color:#374151;cursor:pointer;font-family:inherit;text-align:left;margin-bottom:1px;align-items:center;}
+    .com-dm-row:hover{background:#f2f4f6;}
+    .com-dm-row.on{background:#eef5ff;color:#155bb0;font-weight:700;}
+    .com-dm-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .com-dm-badge{background:#e5484d;color:#fff;font-size:10px;border-radius:99px;padding:1px 6px;font-weight:700;flex:0 0 auto;}
+    .com-dm-chat{flex:1;background:#fff;border:1px solid #e4e7eb;border-radius:10px;display:flex;flex-direction:column;height:560px;min-width:0;}
+    .com-dm-head{padding:10px 14px;border-bottom:1px solid #eef0f2;font-size:13px;font-weight:700;color:#0f1419;display:flex;align-items:center;gap:8px;}
+    .com-dm-msgs{flex:1;overflow-y:auto;padding:14px;}
+    .com-dm-bubble{max-width:72%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.6;margin:4px 0;white-space:pre-wrap;word-break:break-word;}
+    .com-dm-bubble.me{background:#1d6fd1;color:#fff;margin-left:auto;}
+    .com-dm-bubble.them{background:#f2f4f6;color:#1f2733;}
+    .com-dm-time{font-size:10px;color:#9aa3ad;font-family:'JetBrains Mono',monospace;margin:2px 0;}
+    .com-dm-time.me{text-align:right;}
+    .com-dm-input{display:flex;gap:8px;padding:10px;border-top:1px solid #eef0f2;}
+    .com-dm-input textarea{flex:1;box-sizing:border-box;border:1px solid #e4e7eb;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;resize:none;min-height:40px;background:#fafbfc;color:#0f1419;line-height:1.6;}
+    .com-dm-input textarea:focus{outline:none;border-color:#1d6fd1;background:#fff;}
+    .com-dm-newlist{border-bottom:1px solid #eef0f2;margin-bottom:4px;padding-bottom:4px;}
     @media (max-width: 900px){
       .com-body{flex-direction:column;}
-      .com-side{position:static;flex:none;display:flex;align-items:center;gap:2px;overflow-x:auto;padding:6px 8px;}
-      .com-side-title,.com-side-count,.com-side-foot{display:none;}
-      .com-side-item{flex:0 0 auto;padding:6px 12px;margin-bottom:0;}
+      .com-nav-drawer{display:inline-flex;}
+      .com-side{display:none;}
+      .com-side.open{display:block;position:fixed;top:0;left:0;bottom:0;width:240px;max-width:82vw;background:#fff;z-index:9100;overflow-y:auto;border-radius:0 12px 12px 0;box-shadow:8px 0 28px rgba(0,0,0,0.18);padding:12px 10px;}
+      .com-side-item{margin-bottom:1px;}
+      .com-side-backdrop.show{display:block;}
+      .com-fab-pub{right:18px;bottom:24px;}
+    }
+    @media (max-width: 760px){
+      .com-dm-layout{flex-direction:column;}
+      .com-dm-list{flex:none;max-height:200px;}
+      .com-dm-chat{height:480px;}
     }
     @media (max-width: 600px){
       .com-post{padding:10px 12px;}
