@@ -6796,6 +6796,7 @@ var App = () => {
         var prev = window.__pageScrollCur || "home";
         try { window.__pageScroll = window.__pageScroll || {}; window.__pageScroll[prev] = window.scrollY || window.pageYOffset || 0; } catch (_) {}
         setPage(h);
+        setSelectedWork(null); // hash 切页即离开作品详情：不清掉会挡住首页渲染（浏览器后退同路径）
         window.__pageScrollCur = h;
         var sy = ((window.__pageScroll || {})[h]) || 0;
         try { window.scrollTo(0, sy); } catch (_) {}
