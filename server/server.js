@@ -102,8 +102,6 @@ app.get('/api/info', (req, res) => {
     version: '1.0.0',
     port: PORT,
     ips,
-    larkConfigured: lark.isConfigured(),
-    fallbackEnabled: lark.fallbackEnabled,
   });
 });
 
@@ -189,17 +187,10 @@ async function collectRegistrations() {
   } catch (e) {
     console.error('[collectRegistrations.pg]', e.message);
   }
-  // ---- 降级：飞书 + JSONL ----
+  // ---- 降级：本地 JSONL 暂存 ----
   const records = [];
   let mode = 'fallback';
-  if (lark.isConfigured()) {
-    const r = await lark.listRegistrations();
-    if (r.ok) {
-      records.push(...r.records);
-      mode = 'lark';
-    }
-  }
-  const fp = lark.fallbackPath;
+  const fp = path.join(__dirname, 'logs', 'registration_fallback.jsonl');
   if (fs.existsSync(fp)) {
     const lines = fs.readFileSync(fp, 'utf-8').split('\n').filter(Boolean);
     let hasFallback = false;
@@ -219,7 +210,7 @@ async function collectRegistrations() {
         hasFallback = true;
       } catch (_) { /* 跳过损坏行 */ }
     }
-    if (hasFallback) mode = (mode === 'lark') ? 'mixed' : 'fallback';
+    if (hasFallback) mode = 'fallback';
   }
   records.sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
   return { records, mode };
@@ -371,8 +362,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('=========================================');
   console.log(` 丽珠 AI 社团官网服务已启动`);
   console.log(` 端口: ${PORT}`);
-  console.log(` 飞书配置: ${lark.isConfigured() ? '已配置' : '未配置（仅本地降级）'}`);
-  console.log(` 降级开关: ${lark.fallbackEnabled ? '开启' : '关闭'}`);
+  console.log(` 飞书应用: ${lark.appId ? '已配置（SSO 登录 + 机器人通知）' : '未配置'}`);
   console.log(' 内网访问地址:');
   for (const ip of ips) {
     console.log(`   http://${ip}:${PORT}/`);

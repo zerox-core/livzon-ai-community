@@ -1,6 +1,6 @@
 # 丽珠 AI 社团官网 · 本地部署
 
-> 公司内部员工使用。Node.js + Express 轻量后端 + 静态前端 + 飞书多维表格存储报名数据。
+> 公司内部员工使用。Node.js + Express 轻量后端 + 静态前端 + 自建 PostgreSQL 存储业务数据；飞书负责登录（SSO）与通知（机器人）。
 > 本机作为服务器，LAN 内访问，**不部署公网**。
 
 ## 快速启动
@@ -32,7 +32,7 @@ F:\pingce\
 ├── server\
 │   ├── package.json
 │   ├── server.js            # Express 入口
-│   ├── lark-client.js       # 飞书多维表格 API 封装
+│   ├── lark-client.js       # 飞书开放平台 API 封装（登录/通知）
 │   ├── .env.example         # 凭证模板
 │   └── .env                 # 实际凭证（首次启动自动生成）
 ├── public\
@@ -103,49 +103,24 @@ F:\pingce\
 ```json
 {
   "ok": true,
-  "mode": "lark",
-  "recordId": "rec...",
-  "message": "报名成功，我们已收到您的报名信息"
+  "recordId": 12,
+  "status": "pending",
+  "createdAt": "2026-09-12T00:00:00.000Z"
 }
 ```
 
-`mode` 取值：
-- `lark`：成功写入飞书多维表格
-- `fallback`：飞书 API 失败，**已暂存到 logs/registration_fallback.jsonl**，管理员可批量导入
-- `failed`：完全失败（极少见）
+数据第一落点为本地 PostgreSQL（`registrations` 表）；PG 故障时暂存 `logs/registration_fallback.jsonl`，恢复后可补录，报名不丢失。
+## 飞书自建应用凭证（登录 + 机器人通知）
 
-## 飞书多维表格配置
+后端需要企业自建应用的 `LARK_APP_ID` / `LARK_APP_SECRET`（`server/.env`）：
 
-报名表已通过 lark-cli 帮你建好：
+1. 登录 https://open.feishu.cn/app → 企业自建应用 → 创建；
+2. 开启「网页应用」能力（SSO 登录，回调地址在「安全设置」登记，值同 `LARK_LOGIN_REDIRECT_URI`）与「机器人」能力（通知推送）；
+3. 权限按需勾选：`im:message:send_as_bot`（机器人发消息）、`authen:user.id:username`（登录用户信息）等；
+4. 版本管理与发布 → 创建版本 → 提交发布；
+5. 基础信息页复制 `App ID` / `App Secret` 填入 `server/.env`，重启服务。
 
-- **Base URL / app_token / table_id**：请在内部部署环境的凭证配置中填写，不随公开代码分发。
-- **字段**：姓名 / 部门 / 联系方式 / 报名活动（单选）/ 是否愿意分享（勾选）/ 分享方向 / 备注 / 报名时间（自动）/ 状态（单选：待审核/已通过/已驳回）
-
-### 让后端能写入表格（一次性设置）
-
-后端调飞书 OpenAPI 需要企业自建应用的凭证。**lark-cli 的凭证由 aily 平台托管，不能直接给 Node.js 后端复用**，需要单独创建一个飞书自建应用：
-
-1. **创建应用**：登录 https://open.feishu.cn/app → 企业自建应用 → 创建企业自建应用
-   - 应用名：`丽珠 AI 社团后端`（任意）
-2. **添加权限**：权限管理 → 搜索「多维表格」，勾选：
-   - `bitable:app`（读写 Bitable）
-   - `bitable:app:readonly`（读）
-3. **发布版本**：版本管理与发布 → 创建版本 → 提交发布（企业内部自审通过）
-4. **获取凭证**：基础信息 → 复制 `App ID` 和 `App Secret`
-5. **填到 .env**：编辑 `server/.env`：
-   ```
-   LARK_APP_ID=cli_xxxxxxxxxxxx
-   LARK_APP_SECRET=你的App Secret
-   ```
-6. **重启服务**：`node start.mjs --stop && node start.mjs`
-
-### 如果不想配飞书（纯本地模式）
-
-把 `.env` 里的 `LOCAL_FALLBACK=0` 改为 `LOCAL_FALLBACK=1`（**默认就是 1**）。
-所有报名会暂存到 `logs/registration_fallback.jsonl`（每行一条 JSON），管理员可定期：
-- 复制到飞书多维表格手动导入
-- 或用 lark-cli `base +record-batch-create --records @registrations.json` 批量补录
-
+> 历史说明：早期版本曾把报名写入飞书多维表格，已按架构方向（数据主库为自建 PostgreSQL）整体移除。
 ## 局域网内其他员工访问
 
 服务默认监听 `0.0.0.0:8787`。同 WiFi / 同网段的同事可通过你的内网 IP 访问：
@@ -186,5 +161,5 @@ node server/sql/run_migrate.js
 - **不公网访问**：仅 LAN。需要公网请加内网穿透或部署到云。
 - **并发量**：单 Node 进程，~百级并发没问题，**不适合数千并发**。
 - **HTTPS**：当前 HTTP 内网环境，敏感信息靠 LAN 隔离。
-- **报名后端凭证**：需要你单独创建飞书自建应用（5 分钟一次性操作），详见上文。
+- **飞书应用凭证**：登录与机器人通知依赖自建应用凭证（一次性配置，见上文）。
 - **`public/admin.html` 为旧后台产物，已废弃**：站内无任何入口链接（已核实），文件暂时保留不再迭代。管理功能后续归并进「账号权限」体系（有管理权限的账号在个人中心获得专属入口）。

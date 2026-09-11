@@ -1,6 +1,6 @@
 // server/routes/register.js
 // 报名：公开提交，第一落点 PostgreSQL（真写库）
-// 降级：PG 失败时回退到飞书/JSONL（保留原 lark-client 通道），保证不丢报名
+// 降级：PG 失败时回退到本地 JSONL 暂存，保证不丢报名
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
