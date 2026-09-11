@@ -153,3 +153,23 @@ multipart 上传本地文件（四分类）。**要求登录**。文件字段名
 - 已存在的**旧上传文件不迁移**；`assets` 与 `artifacts` 保持独立（artifacts 加 `asset_id` 引用，合并与否属后续开放项）。
 - `runner`：先 `node server/sql/run_migrate.js`（建 `assets` 表 + 消费方 `asset_id` 列），再重启 `node start.mjs`。
 - 大小上限统一走环境变量：`ASSET_MAX_MB`（默认 50，社区/制品/报名/信件共用）。
+
+## Agent 自动化回填（v1.1 新增）
+
+`POST /api/assets/agent-register` —— agent 在内网完成「推 gitlab / 提交飞书资源中心」后，程序化回填登记（替代人工粘贴报告）。
+
+- **鉴权**：请求头 `x-agent-token` 必须等于 `server/.env` 的 `AGENT_TOKEN`（恒时比对；未配置该变量 → `501` 未启用）。**不走登录会话**。
+- **两种模式**：
+  - 带 `assetId` → 更新既有登记的 remote 字段组（`name/repo_url/remote_url/remote_status/stage/guide/agent_report`，传啥更啥）；
+  - 不带 `assetId` → 新建 `backend='remote'` 的登记（默认 `category='program'`，归属第一个 admin）。
+- **请求体字段**：`assetId? / name? / category? / kind? / repoUrl? / remoteUrl? / remoteStatus? / stage? / guide? / agentReport?`。
+- **返回**：`{updated:true, asset}` 或 `201 {created:true, asset}`。
+- **前端配套**：个人中心「⚡ 上传程序」的「📋 复制任务书 / ⬇ 保存任务书(.md)」生成完整 agent 任务书（含上述 curl 示例），交给 agent 执行即可闭环。
+
+## 巨幕展位（wall_order，v1.1 新增）
+
+- `works.wall_order INT NULL`（迁移 017）：**1..28** = 巨幕展位（4 行 × 7列）；`NULL` = 未上墙。部分唯一索引保证一件作品一个展位。
+- `GET /api/works`：**仅返回上墙作品**（`approved+published+wall_order 非空`，按展位排序，行内含 `wall_order`）——前端按展位覆盖巨幕对应卡片。
+- `GET /api/works/gallery`：作品走廊，返回**全部** `approved+published` 作品（上墙在前、未上墙按时间），巨幕下方罗列。
+- 上墙由管理员人工筛选：`PATCH /api/admin/works/:id` 新增 `wall_order`（1..28 整数或 null 撤下）；目标展位被占用 → 400 提示；**下架/驳回自动撤墙**。
+- 作品提交（`POST /api/works`）仍为 `pending + 未发布`，**不会自动上巨幕**。
