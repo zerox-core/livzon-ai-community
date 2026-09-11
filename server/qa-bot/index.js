@@ -1,10 +1,12 @@
-// 丽珠AI社团 · 群问答机器人（本地知识库检索 + 话题回复）
+// 丽珠AI社团 · 群问答机器人（RAG：本地知识库检索 + LLM 生成 + 话题回复）
 // 用法：node server/qa-bot/index.js（需 server/.env 里有 LARK_APP_ID / LARK_APP_SECRET）
+// LLM 配置（可选）：QA_BOT_LLM_BASE_URL / QA_BOT_LLM_API_KEY / QA_BOT_LLM_MODEL
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const fs = require('fs');
 const path = require('path');
 const { createLarkChannel, LoggerLevel } = require('@larksuiteoapi/node-sdk');
 const { loadKB, retrieve } = require('./kb');
+const { llmConfigured, chat } = require('./llm');
 
 const LOG_FILE = path.join(__dirname, '..', '..', 'logs', 'qa-bot.log');
 const KB_DIR = path.join(__dirname, 'kb');
@@ -20,6 +22,15 @@ if (!appId || !appSecret) {
   console.error('缺少 LARK_APP_ID / LARK_APP_SECRET（server/.env）');
   process.exit(1);
 }
+
+const SYSTEM_PROMPT = [
+  '你是丽珠AI社团的内部问答机器人"丽珠AI"。规则：',
+  '1. 严格根据下面给出的资料回答用户问题；',
+  '2. 资料里没写的事，明确说"这个我暂时没有资料，建议联系社团管理员"，绝不编造；',
+  '3. 用大白话、简短清楚，3 到 6 句话为宜；',
+  '4. 步骤类回答可以用编号列表；',
+  '5. 直接回答，不要提"根据资料""文档显示"这种字眼。',
+].join('\n');
 
 // 去重：飞书长连接要求 3 秒内处理完，超时会重推同一事件；同一 message_id 只答一次
 const seen = new Map();
@@ -50,10 +61,22 @@ async function answer(question) {
   const hits = retrieve(kb, question, 3);
   const best = hits[0];
   log('检索结果：' + hits.map(h => h.title + '=' + h.score).join('，'));
-  if (best && best.score >= 2) {
-    return '【' + best.title + '】\n\n' + best.body;
+  if (!best || best.score < 2) return buildFallback(kb);
+
+  // 完整 RAG：检索到资料 → 交给 LLM 用人话组织答案；LLM 挂了降级为原文直发
+  if (llmConfigured(process.env)) {
+    const ctx = hits.filter(h => h.score >= 1)
+      .map((h, i) => '【资料' + (i + 1) + '：' + h.title + '】\n' + h.body)
+      .join('\n\n');
+    try {
+      const reply = await chat(process.env, SYSTEM_PROMPT, '资料：\n' + ctx + '\n\n用户问题：' + question, 40000);
+      log('LLM 回复成功（' + reply.length + ' 字）');
+      return reply;
+    } catch (e) {
+      log('LLM 调用失败，降级为原文直发：' + (e && e.message));
+    }
   }
-  return buildFallback(kb);
+  return '【' + best.title + '】\n\n' + best.body;
 }
 
 async function main() {
@@ -84,8 +107,9 @@ async function main() {
 
   await channel.connect();
   const botName = channel.botIdentity ? channel.botIdentity.name : '(未知)';
-  log('机器人已上线：' + botName + '，知识库 ' + loadKB(KB_DIR).length + ' 篇');
-  console.log('QA bot 已上线（长连接）：' + botName);
+  const llmInfo = llmConfigured(process.env) ? process.env.QA_BOT_LLM_MODEL : '未配置（原文直发模式）';
+  log('机器人已上线：' + botName + '，知识库 ' + loadKB(KB_DIR).length + ' 篇，LLM：' + llmInfo);
+  console.log('QA bot 已上线（长连接）：' + botName + ' | LLM：' + llmInfo);
 }
 
 main().catch(e => { log('启动失败：' + (e && e.stack || e)); console.error(e); process.exit(1); });
