@@ -4843,6 +4843,7 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
     var rotTgtX = 0, rotTgtY = 0, rotCurX = 0, rotCurY = 0;
     var scene, camera, renderer, group, groundMesh, groundMat, shadowMat, shadowMesh;
     var vaseMesh = null, vaseTopRadius = 3;
+    var tilesMesh = null, tileData = null;
     var instancers = [], ee = null, butterflies = [], wingL, wingR;
     var elapsedBase = performance.now(), lastNow = performance.now();
     var tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(),
@@ -5035,19 +5036,37 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       var k = 2.6 / blossomModel.size.x * 1.2 * blossomModel.size.y;
       var I = Math.max(B + k, vaseTopRadius + 0.98 * leafBouquet.length);
       var L = Math.max(S + 0.86 * B + k, 9.5 + 0.75 * leafBouquet.length);
-      /* v22 QR: ground board becomes a CanvasTexture QR (with quiet zone) — the scan guarantee under the petals */
+      /* v35 QR: 原设计立体方块系统 —— 深色格=花瓣同色的 0.34 高方块、浅色格=0.05 高白色调方块，
+         从地面由中心向外升起拼出二维码，花瓣飘落在深色方块顶上 */
       if (qrOpts) {
         groundSpan = fakeSize + 2 * quiet;
-        var px = 12;
-        var qc = document.createElement('canvas');
-        qc.width = qc.height = groundSpan * px;
-        var qx = qc.getContext('2d');
-        qx.fillStyle = PALE; qx.fillRect(0, 0, qc.width, qc.height);
-        cells.forEach(function (c) { qx.fillStyle = c.tint; qx.fillRect((quiet + c.col) * px, (quiet + c.row) * px, px, px); });
-        var qtex = new THREE.CanvasTexture(qc);
-        qtex.colorSpace = THREE.SRGBColorSpace;
-        qtex.anisotropy = 4;
-        groundMat.map = qtex;
+        if (tilesMesh) { try { group.remove(tilesMesh); tilesMesh.geometry.dispose(); tilesMesh.material.dispose(); } catch (e) {} tilesMesh = null; }
+        var tw = fakeSize * fakeSize;
+        var tileGeo = new THREE.BoxGeometry(1, 0.34, 1);
+        var tileMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        tilesMesh = new THREE.InstancedMesh(tileGeo, tileMat, tw);
+        tilesMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        tilesMesh.frustumCulled = false;
+        tilesMesh.setColorAt(0, tmpC.set(0xffffff));
+        group.add(tilesMesh);
+        var tileLookup = {};
+        cells.forEach(function (c) { tileLookup[c.row + ':' + c.col] = c.tint; });
+        var whites = [new THREE.Color(0xffffff), new THREE.Color(0xf6f6f7), new THREE.Color(0xfbfbfc)];
+        tileData = { pos: new Float32Array(2 * tw), delay: new Float32Array(tw), dark: new Uint8Array(tw), tone: new Uint8Array(tw), count: tw };
+        for (var trow = 0; trow < fakeSize; trow++) for (var tcol = 0; tcol < fakeSize; tcol++) {
+          var tIdx = trow * fakeSize + tcol, tOx = tcol - half, tOy = trow - half;
+          tileData.pos[2 * tIdx] = tOx; tileData.pos[2 * tIdx + 1] = tOy;
+          tileData.delay[tIdx] = Math.min(1, Math.hypot(tOx, tOy) / maxRadius);
+          var tTint = tileLookup[trow + ':' + tcol];
+          tileData.dark[tIdx] = tTint ? 1 : 0;
+          tileData.tone[tIdx] = Math.floor(3 * rand());
+          if (tTint) { tmpC.set(tTint); } else { tmpC.copy(whites[tileData.tone[tIdx] % 3]); }
+          tilesMesh.setColorAt(tIdx, tmpC);
+        }
+        if (tilesMesh.instanceColor) tilesMesh.instanceColor.needsUpdate = true;
+        for (var t0 = 0; t0 < tw; t0++) { tmpM.makeScale(0, 0, 0); tilesMesh.setMatrixAt(t0, tmpM); }
+        tilesMesh.instanceMatrix.needsUpdate = true;
+        groundMat.map = null;
         groundMat.color.set(0xffffff);
         groundMat.needsUpdate = true;
       } else {
@@ -5144,6 +5163,19 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       }
       wingL.instanceMatrix.needsUpdate = true;
       wingR.instanceMatrix.needsUpdate = true;
+
+      /* v35: 二维码方块从地面升起（原设计同款：由中心向外的延迟，与花瓣同步） */
+      if (tilesMesh && tileData) {
+        for (var t2 = 0; t2 < tileData.count; t2++) {
+          var ta = smoothstep((et - 0.45 * tileData.delay[t2]) / 0.55);
+          var th2 = tileData.dark[t2] ? 0.34 : 0.05;
+          tmpV.set(tileData.pos[2 * t2], th2 / 2 * ta, tileData.pos[2 * t2 + 1]);
+          tmpS.set(ta, th2 / 0.34 * ta, ta);
+          tmpM.compose(tmpV, tmpQ.identity(), tmpS);
+          tilesMesh.setMatrixAt(t2, tmpM);
+        }
+        tilesMesh.instanceMatrix.needsUpdate = true;
+      }
 
       /* ground board scale lerp 0.46 -> 1 */
       var boardScale = THREE.MathUtils.lerp(0.46, 1, smoothstep(Math.min(1, 1.7 * et)));
@@ -5260,6 +5292,7 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       ro.disconnect();
       try { renderer.dispose(); } catch (e) {}
       try { if (groundMat && groundMat.map) groundMat.map.dispose(); } catch (e) {}
+      try { if (tilesMesh) { tilesMesh.geometry.dispose(); tilesMesh.material.dispose(); } } catch (e) {}
       instancers.forEach(function (inst) { try { inst.mesh.dispose(); } catch (e) {} });
       if (canvasHost.parentNode) canvasHost.parentNode.removeChild(canvasHost);
       hostEl.classList.remove('bloom-ready');

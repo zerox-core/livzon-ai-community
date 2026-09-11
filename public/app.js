@@ -1878,14 +1878,20 @@ var ActivitiesSection = () => {
             slideEls.forEach(function (s, si) { s.classList.toggle("on", si === curSlide); });
             if (dotsEl) Array.prototype.forEach.call(dotsEl.children, function (d, di) { d.classList.toggle("on", di === curSlide); });
             if (window.__bloomGoSlide) window.__bloomGoSlide(curSlide);
+            if (carNext) carNext(); /* v34: 任何切换（自动或手动）都重置自动轮播冷却 */
+          };
+          // v34: 自动轮播冷却可被任何用户交互重置（点 dot / 箭头 / 拖拽 / 键盘 / 点花束看动画都算）
+          // 主群卡（花束→二维码）多停留 9.5s 留出扫码时间，其余卡 5s
+          var carT = 0;
+          var carNext = function () {
+            clearTimeout(carT);
+            carT = setTimeout(function () { if (!cancelled) goSlide(curSlide + 1); }, curSlide === 0 ? 9500 : 5000);
           };
           if (!prefersReduced && slideEls.length > 1) {
-            // v33: 主群卡（花束→二维码）多停留 9.5s 留出扫码时间，其余卡 5s
-            var carT = 0;
-            var carNext = function () { carT = setTimeout(function () { if (!cancelled) { goSlide(curSlide + 1); } carNext(); }, curSlide === 0 ? 9500 : 5000); };
             carNext();
-            uiCleanups.push(function () { clearTimeout(carT); });
+            carEl.addEventListener("click", function () { carNext(); });
           }
+          uiCleanups.push(function () { clearTimeout(carT); });
           if (dotsEl) dotsEl.addEventListener("click", function (e) {
             var t = e.target && e.target.closest ? e.target.closest(".dot") : null;
             if (t) goSlide(parseInt(t.getAttribute("data-i"), 10) || 0);
@@ -1950,7 +1956,7 @@ var ActivitiesSection = () => {
               if (window.__bloomQueue) { window.__bloomQueue.push(cb); return; }
               window.__bloomQueue = [cb];
               var sc = document.createElement("script");
-              sc.src = "/bloom-carousel.js?v=20260911r1";
+              sc.src = "/bloom-carousel.js?v=20260911r2";
               sc.onload = function () { var q = window.__bloomQueue || []; window.__bloomQueue = null; q.forEach(function (f) { f(); }); };
               sc.onerror = function () { window.__bloomQueue = null; };
               document.head.appendChild(sc);
