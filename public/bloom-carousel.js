@@ -4666,6 +4666,15 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
   var GOLDEN = Math.PI * (1 + Math.sqrt(5));
   var ACCENT = '#c96b80';
   var PALE = '#fff6ea';
+  var QR_INK = '#241f26';
+  /* v22 QR: darkened petal-hue palettes per species (original blossom hues, darkened for scan contrast) */
+  var QR_PALETTES = {
+    peony: ['#8e3a56', '#9b4a64', '#a3526c', '#7c3350'],
+    rose: ['#7d2f45', '#8a3a50', '#96445c', '#6f2a3e'],
+    lily: ['#7a4a33', '#86523a', '#6e422e', '#8f5c40'],
+    lotus: ['#6f3a6a', '#7c4476', '#63325f', '#8a4f83']
+  };
+  var QR_LEAF = ['#37503a', '#3f5a42', '#2f4633', '#446047'];
   var modelsPromise = null;
 
   function smoothstep(e) { var t = Math.min(1, Math.max(0, e)); return t * t * t * (t * (6 * t - 15) + 10); }
@@ -4742,6 +4751,13 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
     var qrPos = new Float32Array(3 * f), qrQuat = new Float32Array(4 * f), qrScale = new Float32Array(f);
     var bqPos = new Float32Array(3 * f), bqQuat = new Float32Array(4 * f), bqScale = new Float32Array(f);
     var delay = new Float32Array(f), arc = new Float32Array(f), swayPhase = new Float32Array(f);
+    var tintBqArr = new Float32Array(3 * f), tintQrArr = new Float32Array(3 * f), tintColor = new THREE.Color();
+    for (var ti = 0; ti < f; ti++) {
+      tintBqArr[3 * ti] = 1; tintBqArr[3 * ti + 1] = 1; tintBqArr[3 * ti + 2] = 1;
+      if (cfg.tints && cfg.tints[ti]) { tintColor.set(cfg.tints[ti]); }
+      else { tintColor.setRGB(1, 1, 1); }
+      tintQrArr[3 * ti] = tintColor.r; tintQrArr[3 * ti + 1] = tintColor.g; tintQrArr[3 * ti + 2] = tintColor.b;
+    }
     var C = kind === 'leaf';
     var A = C ? 1.05 / model.size.y : 1.05 / model.size.x;
     var E = C ? leafBouquet.length / model.size.y : 2.6 / model.size.x;
@@ -4791,7 +4807,7 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       qrPos: qrPos, qrQuat: qrQuat, qrScale: qrScale,
       bqPos: bqPos, bqQuat: bqQuat, bqScale: bqScale,
       delay: delay, arc: arc, swayPhase: swayPhase,
-      tintBouquet: new THREE.Color(0xffffff), tintQr: new THREE.Color(0xffffff)
+      tintBqArr: tintBqArr, tintQrArr: tintQrArr
     };
   }
 
@@ -4809,6 +4825,14 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
     var count = Math.max(60, opts.count || 380);
     var reduced = opts.reduced || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     var zoom = (opts.zoom != null && isFinite(opts.zoom)) ? opts.zoom : 1;
+    /* v22 QR: real QR mode — rows/fn are '1'/'0' row strings; autoMs auto-morphs bouquet -> QR after activation */
+    var qrOpts = null;
+    if (opts.qr && opts.qr.rows && opts.qr.rows.length) {
+      var dk = 0;
+      for (var qri = 0; qri < opts.qr.rows.length; qri++) dk += (String(opts.qr.rows[qri]).match(/1/g) || []).length;
+      qrOpts = { rows: opts.qr.rows, fn: opts.qr.fn || null, ink: opts.qr.ink || QR_INK, quiet: 4, autoMs: opts.qr.autoMs || 0, dark: dk };
+      count = dk;
+    }
     var hostEl = (typeof host === 'string') ? document.getElementById(host) : host;
     if (!hostEl) return null;
 
@@ -4822,7 +4846,7 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
     var instancers = [], ee = null, butterflies = [], wingL, wingR;
     var elapsedBase = performance.now(), lastNow = performance.now();
     var tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(),
-      tmpS = new THREE.Vector3(), tmpC = new THREE.Color(), AXIS_Z = new THREE.Vector3(0, 0, 1), tmpV2 = new THREE.Vector3(), tmpQ3 = new THREE.Quaternion();
+      tmpS = new THREE.Vector3(), tmpC = new THREE.Color(), tmpC2 = new THREE.Color(), AXIS_Z = new THREE.Vector3(0, 0, 1), tmpV2 = new THREE.Vector3(), tmpQ3 = new THREE.Quaternion();
 
     var canvasHost = document.createElement('div');
     canvasHost.className = 'bloom-canvas-host';
@@ -4971,27 +4995,67 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       var leafModel = models.leaves[spec.leaf];
       var leafBouquet = { length: spec.leafLen || 7, lean: spec.lean || LEAN_DEFAULT };
       var rand = mulberry(opts.seed != null ? (opts.seed >>> 0) : 20260904);
-      var fakeSize = 33, half = (fakeSize - 1) / 2;
-      var cells = [];
-      for (var ci = 0; ci < count; ci++) cells.push({ row: Math.floor(rand() * fakeSize), col: Math.floor(rand() * fakeSize) });
-      for (var s = cells.length - 1; s > 0; s--) { var j = Math.floor(rand() * (s + 1)); var tmp = cells[s]; cells[s] = cells[j]; cells[j] = tmp; }
+      var fakeSize = 33, quiet = 0, groundSpan;
+      var cells = [], blossomCells, leafCells;
+      if (qrOpts) {
+        /* v22 QR: cells = real dark modules; tints = darkened petal hues, function patterns -> ink */
+        fakeSize = qrOpts.rows.length;
+        quiet = qrOpts.quiet != null ? qrOpts.quiet : 4;
+        var pal = QR_PALETTES[speciesId] || QR_PALETTES.peony;
+        var idx = 0;
+        for (var yy = 0; yy < fakeSize; yy++) for (var xx = 0; xx < fakeSize; xx++) {
+          if (String(qrOpts.rows[yy]).charAt(xx) === '1') {
+            var isFn = qrOpts.fn && qrOpts.fn[yy] && String(qrOpts.fn[yy]).charAt(xx) === '1';
+            var hex = isFn ? qrOpts.ink : ((idx % 4 === 3) ? QR_LEAF[Math.floor(rand() * QR_LEAF.length)] : pal[Math.floor(rand() * pal.length)]);
+            cells.push({ row: yy, col: xx, tint: hex });
+            idx++;
+          }
+        }
+        var bcs = [], lcs = [];
+        cells.forEach(function (c, i) { ((i % 4 === 3) ? lcs : bcs).push(c); });
+        blossomCells = bcs; leafCells = lcs;
+      } else {
+        for (var ci = 0; ci < count; ci++) cells.push({ row: Math.floor(rand() * fakeSize), col: Math.floor(rand() * fakeSize) });
+        for (var s = cells.length - 1; s > 0; s--) { var j = Math.floor(rand() * (s + 1)); var tmp = cells[s]; cells[s] = cells[j]; cells[j] = tmp; }
+      }
+      var half = (fakeSize - 1) / 2;
       var maxRadius = Math.hypot(half, half) || 1;
       var F = cells.length;
       var R = Math.round(0.26 * F), T = F - R;
+      if (!blossomCells) { blossomCells = cells.slice(0, T); leafCells = cells.slice(T, F); }
       var B = THREE.MathUtils.clamp(0.41 * Math.sqrt(F), 5, 9);
       var S = 9.5 + 0.42 * B;
       var base = { half: half, maxRadius: maxRadius, ballRadius: B, ballCenterY: S, vaseTopRadius: vaseTopRadius, rand: rand };
+      var tintOf = function (c) { return c.tint || null; };
       instancers = [
-        eo(Object.assign({}, base, { model: blossomModel, cells: cells.slice(0, T), kind: 'blossom' })),
-        eo(Object.assign({}, base, { model: leafModel, cells: cells.slice(T, F), kind: 'leaf', leafBouquet: leafBouquet }))
+        eo(Object.assign({}, base, { model: blossomModel, cells: blossomCells, tints: blossomCells.map(tintOf), kind: 'blossom' })),
+        eo(Object.assign({}, base, { model: leafModel, cells: leafCells, tints: leafCells.map(tintOf), kind: 'leaf', leafBouquet: leafBouquet }))
       ].filter(function (x) { return x.count > 0; });
       instancers.forEach(function (inst) { group.add(inst.mesh); });
       var k = 2.6 / blossomModel.size.x * 1.2 * blossomModel.size.y;
       var I = Math.max(B + k, vaseTopRadius + 0.98 * leafBouquet.length);
       var L = Math.max(S + 0.86 * B + k, 9.5 + 0.75 * leafBouquet.length);
+      /* v22 QR: ground board becomes a CanvasTexture QR (with quiet zone) — the scan guarantee under the petals */
+      if (qrOpts) {
+        groundSpan = fakeSize + 2 * quiet;
+        var px = 12;
+        var qc = document.createElement('canvas');
+        qc.width = qc.height = groundSpan * px;
+        var qx = qc.getContext('2d');
+        qx.fillStyle = PALE; qx.fillRect(0, 0, qc.width, qc.height);
+        cells.forEach(function (c) { qx.fillStyle = c.tint; qx.fillRect((quiet + c.col) * px, (quiet + c.row) * px, px, px); });
+        var qtex = new THREE.CanvasTexture(qc);
+        qtex.colorSpace = THREE.SRGBColorSpace;
+        qtex.anisotropy = 4;
+        groundMat.map = qtex;
+        groundMat.color.set(0xffffff);
+        groundMat.needsUpdate = true;
+      } else {
+        groundSpan = fakeSize;
+      }
       ee = {
-        boardCells: fakeSize,
-        boardRadius: fakeSize / 2 * 1.18,
+        boardCells: groundSpan,
+        boardRadius: groundSpan / 2 * 1.18,
         ballCenterY: S, ballRadius: B,
         bouquetTargetY: 0.5 * L,
         bouquetRadius: 1.35 * Math.max(I, 0.5 * L)
@@ -5029,8 +5093,9 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
           tmpS.set(sc, sc, sc);
           tmpM.compose(tmpV, tmpQ, tmpS);
           inst.mesh.setMatrixAt(fi, tmpM);
-          tmpC.copy(inst.tintBouquet).lerp(inst.tintQr, a);
-          inst.mesh.setColorAt(fi, tmpC);
+          tmpC.setRGB(inst.tintBqArr[3 * fi], inst.tintBqArr[3 * fi + 1], inst.tintBqArr[3 * fi + 2]);
+          tmpC2.setRGB(inst.tintQrArr[3 * fi], inst.tintQrArr[3 * fi + 1], inst.tintQrArr[3 * fi + 2]);
+          inst.mesh.setColorAt(fi, tmpC.lerp(tmpC2, a));
         }
         inst.mesh.instanceMatrix.needsUpdate = true;
         if (inst.mesh.instanceColor) inst.mesh.instanceColor.needsUpdate = true;
@@ -5050,7 +5115,9 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       var bSc = smoothstep(Math.min(1, 1.8 * et));
       var br = THREE.MathUtils.lerp(ee.ballRadius, ee.boardRadius * 0.92, bSc);
       var bsMul = 1 + 1.3 * bSc;
-      wingL.visible = true; wingR.visible = true;
+      /* v22 QR: butterflies fade out in scatter state so the QR stays clean for scanning */
+      wingMat.opacity = qrOpts ? Math.max(0, u) : 1;
+      wingL.visible = wingR.visible = !qrOpts || u > 0.03;
       for (var bj = 0; bj < 36; bj++) {
         var bf = butterflies[bj];
         var n0 = now * bf.speed[0] + bf.phase[0], n1 = now * bf.speed[1] + bf.phase[1], n2 = now * bf.speed[2] + bf.phase[2];
@@ -5161,19 +5228,38 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       } catch (e) { hostEl.setAttribute('data-bloom-err', String((e && e.message) || e)); }
     }).catch(function (e) { try { hostEl.setAttribute('data-bloom-err', String((e && e.message) || e)); } catch (e2) {} });
 
+    /* v22 QR: auto-morph bouquet -> QR once the slide has been active for autoMs */
+    var autoT = 0;
+    function morphTo(sc) {
+      state.scatter = sc ? 1 : 0;
+      if (reduced) { et = state.scatter; renderFrame(0.001, 0); } else { ensureRaf(); }
+    }
+    function clearAuto() { if (autoT) { clearTimeout(autoT); autoT = 0; } }
+    function scheduleAuto() {
+      clearAuto();
+      if (qrOpts && qrOpts.autoMs) {
+        autoT = setTimeout(function () { autoT = 0; if (!dead && wantActive) morphTo(1); }, qrOpts.autoMs);
+      }
+    }
     function setActive(on) {
       wantActive = !!on;
       active = wantActive && ready;
+      if (qrOpts) {
+        if (wantActive) scheduleAuto();
+        else { clearAuto(); if (ready) morphTo(0); }
+      }
       if (reduced) { if (ready) renderFrame(0.001, 0); return; }
       if (active && !rafId) { ensureRaf(); }
     }
     function dispose() {
       dead = true;
+      clearAuto();
       if (rafId) cancelAnimationFrame(rafId);
       rafId = 0;
       try { canvasHost.removeEventListener('click', onHostClick); } catch (e) {}
       ro.disconnect();
       try { renderer.dispose(); } catch (e) {}
+      try { if (groundMat && groundMat.map) groundMat.map.dispose(); } catch (e) {}
       instancers.forEach(function (inst) { try { inst.mesh.dispose(); } catch (e) {} });
       if (canvasHost.parentNode) canvasHost.parentNode.removeChild(canvasHost);
       hostEl.classList.remove('bloom-ready');

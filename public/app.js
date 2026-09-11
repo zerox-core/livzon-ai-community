@@ -1610,41 +1610,45 @@ var ActivitiesSection = () => {
       };
       // 展线导航（sticky 吸附）
       h += "<nav class='act-rail v33-rv' id='actRail'>" +
-        "<a href='#act-sec-feature' data-target='act-sec-feature' class='rail-link on'><span class='rail-no'>01</span><span>本月特展</span></a>" +
+        "<a href='#act-sec-feature' data-target='act-sec-feature' class='rail-link on'><span class='rail-no'>01</span><span>进群与板块</span></a>" +
         "<a href='#act-sec-upcoming' data-target='act-sec-upcoming' class='rail-link'><span class='rail-no'>02</span><span>预约消息通知</span></a>" +
         "<a href='#act-sec-archive' data-target='act-sec-archive' class='rail-link'><span class='rail-no'>03</span><span>回顾展区</span></a>" +
         "<a href='#act-sec-types' data-target='act-sec-types' class='rail-link'><span class='rail-no'>04</span><span>展馆地图</span></a>" +
         "<a href='#act-sec-join' data-target='act-sec-join' class='rail-link'><span class='rail-no'>尾厅</span><span>参与方式</span></a>" +
         "</nav>";
       // 01 本月特展（浅色自动轮播：首页 + 亮点页）
-      h += "<div class='act-sechead' id='act-sec-feature'><span class='act-secno'>01</span><span class='act-sectitle'>本月特展</span><span class='act-secen'>SPOTLIGHT</span></div>";
+      h += "<div class='act-sechead' id='act-sec-feature'><span class='act-secno'>01</span><span class='act-sectitle'>进群与板块</span><span class='act-secen'>COMMUNITY</span></div>";
       if (focus) {
         var fc = focus.color || "#1a2b4a";
-        var slides = [{ t: focus.tag || "本月特展", n: focus.name, m: "◷ " + esc(focus.dateLabel) + "　⌂ " + esc(focus.location), d: focus.desc, big: true }];
-        // v23: 亮点页左侧文案增强——按亮点名匹配内置文案库，未命中走通用兜底
-        var HL_COPY = {
-          "办公场景自动化": "从重复劳动里解放双手：workflow 串联、prompt 模板沉淀、报表自动生成，现场演示一条真实办公链路的自动化改造全过程。",
-          "生活实用小工具": "AI 不只服务工位：记账、菜谱、出行规划、家庭知识库，一起把模型能力装进日常生活的小角落。",
-          "数据玩法与可视化": "让数据开口说话：快速取数、图表叙事、可交互看板，拆解「一图讲清一件事」的实操套路。",
-          "效率工具开发": "从想法到可用工具的最短路径：低代码拼装、脚本速成、API 串联，现场把一个点子做成能跑的 demo。"
-        };
-        var HL_FALLBACK = "围绕这个方向的实战经验与踩坑复盘，现场投屏演示真实案例，欢迎带着自己的场景来交流。";
-        var HL_META = "现场 demo · 投屏演示 · 圆桌讨论";
-        (focus.highlights || []).forEach(function (x, xi) {
-          var hit = Object.keys(HL_COPY).filter(function (k) { return String(x).indexOf(k) >= 0; })[0];
-          slides.push({ t: "亮点 · 0" + (xi + 1), n: x, m: HL_META, d: hit ? HL_COPY[hit] : HL_FALLBACK, big: false });
-        });
+        // v33: 首页轮播 = 1 主群进群卡（花束绽放成真实进群二维码）+ 4 张板块卡（站内板块页）
+        var JOIN_URL = "https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=71cidf7a-eb2d-4ba2-9bcb-c1897b9693dc&qr_code=true";
+        window.__BLOOM_QR = { rows: ["111111101101101101001101001100110000101111111", "100000101111000000111101110000000001001000001", "101110101010110110001011000100101101001011101", "101110100111111111100000101110011001101011101", "101110101010000001011111111011100011101011101", "100000100100010110001000101101010100001000001", "111111101010101010101010101010101010101111111", "000000000111010000011000111111100001100000000", "100111111100101101011111101011010011010010111", "000101011011010000110011011111100110101101110", "010100101101001001011000100111011010010101111", "101001001010001010100011000001111000100101100", "011100111011100100101001110010101111001111010", "011011011001100010011100001111101101101101010", "000010110111110110011011101001000101001101000", "000011010000101011111110011100000010111001111", "010110111011101010111111101100011001011000010", "100111001001000101001101000001110110110101110", "111011111011011001110100110111010100010100001", "101000010110101011001000101101010011001010100", "000011111100110001101111100011010011111111011", "110010001010101100011000101011110011100011110", "000110101111110101111010110001001011101011111", "000010001110001010111000101001101011100010101", "000111111100100011111111111010101110111110000", "100110011011010111100011001100111100100101010", "101010100011111010111000001010000001000111000", "011001011101000000111001100000100011100001100", "110010110010000101101001011001011001000011011", "000111000100010110101000010100100111001110101", "010111101010101000101110001110101000111111111", "111010011110110010000011100011010001010001110", "101000110111010010001110100010000000000000010", "110111010011110001111001101111101111001010100", "000010100100010110100001010001010110101100111", "011110010001110101101110111001101010101001101", "100110110110001111001111101010101001111110000", "000000001011011011001000101001111101100011110", "111111101111010100101010101010000101101010100", "100000101100001000101000111001000011100011111", "101110101111011100001111111000111100111110011", "101110101111100100111011100000110110011001111", "101110100000111100110110110011010101110010001", "100000100111011101110110000011000100011111111", "111111101111001100100001101011000110101000000"], fn: ["111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000011111000000011111111111", "111111111000000000000011111000000011111111111", "111111111111111111111111111111111111111111111", "111111111000000000000011111000000000111111111", "111111111111111111111111111111111111111111111", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "111111101000000000000000000000000000000000000", "111111101000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111"], autoMs: 1600 };
+        var BOARD_CARDS = [
+          { t: "板块 · 01", n: "AIGC 创作", m: "AI 微电影创作赛 · AI 设计沙龙 · 展映拆解", d: "文生图出分镜、图生视频出镜头、AI 配音配乐收尾——从分镜到成片的完整创作流水线都在这里。月初领主题、月末交成片，展映会上像产品发布会一样轮流播放讨论。", sp: "rose", href: "/board.html#aigc" },
+          { t: "板块 · 02", n: "Agent 应用", m: "Vibe Coding 沙龙 · 前沿模型开发者讲座", d: "用最新模型现场生成有强烈氛围的交互网页、小游戏或视觉生成器；也邀请开源模型核心贡献者闭门分享，小场制、问到你懂为止。", sp: "lily", href: "/board.html#agent" },
+          { t: "板块 · 03", n: "Skill 工具", m: "Skill 开发黑客松 · 实用技能午间沙龙", d: "每人独立开发一个真正能用的 skill，再交给所有人各自的 agent 实测评分：写出来只是开始，被用起来才算完成。", sp: "lotus", href: "/board.html#skill" },
+          { t: "板块 · 04", n: "实际工作流", m: "办公自动化 · 效率工具 · 数据可视化", d: "从重复劳动里解放双手：workflow 串联、prompt 模板沉淀、报表自动生成，现场演示一条真实办公链路的自动化改造全过程。", sp: "peony", href: "/board.html#workflow" }
+        ];
+        var slides = [{
+          t: "飞行社 · 主群", n: "AI 创新大赛",
+          m: "花束绽放，落成进群二维码 · 手机扫码直达",
+          d: "所有活动都在主群里通知与讨论：点击卡片用飞书打开进群链接，或直接扫屏幕上的二维码；轻点花束可再看一次绽放过程。",
+          big: true, sp: "peony", href: JOIN_URL, qr: true
+        }].concat(BOARD_CARDS.map(function (b) {
+          return { t: b.t, n: b.n, m: b.m, d: b.d, big: false, sp: b.sp, href: b.href };
+        }));
         h += "<div class='act-carousel' id='actCarousel'>" + slides.map(function (s, si) {
-          var bloomSp = ["peony", "rose", "lily", "lotus", "peony"][si % 5] || "peony";
-          var ph = "<div class='act-feat-ph' data-bloom='" + bloomSp + "' aria-hidden='true'><i class='c1'></i><i class='c2'></i><i class='c3'></i><i class='c4'></i><span class='ph-t'>FLOWER · 加载中</span></div>";
+          var bloomSp = s.sp || "peony";
+          var ph = "<div class='act-feat-ph' data-bloom='" + bloomSp + "'" + (s.qr ? " data-bloom-qr='1'" : "") + " aria-hidden='true'><i class='c1'></i><i class='c2'></i><i class='c3'></i><i class='c4'></i><span class='ph-t'>FLOWER · 加载中</span></div>";
           return "<div class='act-slide has-ph" + (si === 0 ? " on" : "") + "'>" +
-            "<div class='act-slide-main' style='cursor:pointer' onclick=\"window.actPanel&&window.actPanel('focus','" + esc(focus.id) + "')\" title='点击查看活动详情并报名'>" +
+            "<div class='act-slide-main' style='cursor:pointer' data-slide-href='" + esc(s.href || "") + "' title='" + (s.qr ? "点击用飞书打开进群链接" : "点击进入板块页") + "'>" +
             "<span class='act-tagx' style='color:" + fc + "'>" + esc(s.t) + "</span>" +
             "<div class='act-slide-name" + (s.big ? " big" : "") + "'>" + esc(s.n) + "</div>" +
             (s.m ? "<div class='act-slide-meta'>" + s.m + "</div>" : "") +
             (s.d ? "<p class='act-slide-desc'>" + esc(s.d) + "</p>" : "") +
             "</div>" + ph + "</div>";
         }).join("") + "<div class='act-dots' id='actDots'>" + slides.map(function (s, si) { return "<span class='dot" + (si === 0 ? " on" : "") + "' data-i='" + si + "'></span>"; }).join("") + "</div><button type='button' class='act-nav-btn act-nav-prev' data-dir='-1' aria-label='上一页'><span>‹</span></button><button type='button' class='act-nav-btn act-nav-next' data-dir='1' aria-label='下一页'><span>›</span></button></div>";
+
       } else {
         h += "<div class='act-carousel'><div class='act-slide on'><span class='act-tagx'>敬请期待</span><div class='act-slide-name big'>下一场活动筹备中</div><p class='act-slide-desc'>我们正在策划下一场深度活动。</p></div></div>";
       }
@@ -1876,12 +1880,24 @@ var ActivitiesSection = () => {
             if (window.__bloomGoSlide) window.__bloomGoSlide(curSlide);
           };
           if (!prefersReduced && slideEls.length > 1) {
-            var carTimer = setInterval(function () { if (!cancelled) goSlide(curSlide + 1); }, 5000);
-            uiCleanups.push(function () { clearInterval(carTimer); });
+            // v33: 主群卡（花束→二维码）多停留 9.5s 留出扫码时间，其余卡 5s
+            var carT = 0;
+            var carNext = function () { carT = setTimeout(function () { if (!cancelled) { goSlide(curSlide + 1); } carNext(); }, curSlide === 0 ? 9500 : 5000); };
+            carNext();
+            uiCleanups.push(function () { clearTimeout(carT); });
           }
           if (dotsEl) dotsEl.addEventListener("click", function (e) {
             var t = e.target && e.target.closest ? e.target.closest(".dot") : null;
             if (t) goSlide(parseInt(t.getAttribute("data-i"), 10) || 0);
+          });
+          // v33: 卡片点击——主群卡新窗口打开飞书进群链接，板块卡跳站内板块页
+          carEl.addEventListener("click", function (e) {
+            var m = e.target && e.target.closest ? e.target.closest(".act-slide-main") : null;
+            if (!m) return;
+            var href = m.getAttribute("data-slide-href");
+            if (!href) return;
+            if (href.charAt(0) === "/") { location.href = href; }
+            else { try { window.open(href, "_blank", "noopener"); } catch (_cardE) {} }
           });
           // v22: split side buttons; click pulses a ripple ring then switches slide
           Array.prototype.forEach.call(carEl.querySelectorAll(".act-nav-btn"), function (b) {
@@ -1934,7 +1950,7 @@ var ActivitiesSection = () => {
               if (window.__bloomQueue) { window.__bloomQueue.push(cb); return; }
               window.__bloomQueue = [cb];
               var sc = document.createElement("script");
-              sc.src = "/bloom-carousel.js";
+              sc.src = "/bloom-carousel.js?v=20260911r1";
               sc.onload = function () { var q = window.__bloomQueue || []; window.__bloomQueue = null; q.forEach(function (f) { f(); }); };
               sc.onerror = function () { window.__bloomQueue = null; };
               document.head.appendChild(sc);
@@ -1942,7 +1958,9 @@ var ActivitiesSection = () => {
             loadBloom(function () {
               if (!window.BloomCarousel || !carEl.parentNode) return;
               bloomHosts.forEach(function (bh, bi) {
-                var inst = window.BloomCarousel.mount(bh, bh.getAttribute("data-bloom"), { count: 380, seed: 1201 + bi * 977, zoom: 0.72 });
+                var mo = { count: 380, seed: 1201 + bi * 977, zoom: 0.72 };
+                if (bh.getAttribute("data-bloom-qr") === "1" && window.__BLOOM_QR) mo.qr = window.__BLOOM_QR;
+                var inst = window.BloomCarousel.mount(bh, bh.getAttribute("data-bloom"), mo);
                 if (inst) bloomInsts.push({ inst: inst, host: bh });
               });
               bloomIdx = curSlide; syncBloom();
