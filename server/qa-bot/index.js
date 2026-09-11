@@ -1,4 +1,4 @@
-// 丽珠AI社团 · 群问答机器人（RAG：本地知识库检索 + LLM 生成 + 话题回复）
+// 丽珠AI社团 · 群问答机器人（RAG：本地知识库检索 + LLM 生成 + 话题回复 + 进度状态栏）
 // 用法：node server/qa-bot/index.js（需 server/.env 里有 LARK_APP_ID / LARK_APP_SECRET）
 // LLM 配置（可选）：QA_BOT_LLM_BASE_URL / QA_BOT_LLM_API_KEY / QA_BOT_LLM_MODEL
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
@@ -55,30 +55,6 @@ function buildFallback(kb) {
   return '这个问题我暂时没有找到现成资料。\n我目前掌握这些主题，可以换个说法再问：\n' + topics + '\n\n也可以联系社团管理员确认～';
 }
 
-async function answer(question) {
-  // 每次都重新加载：改 kb/*.md 立即生效，无需重启
-  const kb = loadKB(KB_DIR);
-  const hits = retrieve(kb, question, 3);
-  const best = hits[0];
-  log('检索结果：' + hits.map(h => h.title + '=' + h.score).join('，'));
-  if (!best || best.score < 2) return buildFallback(kb);
-
-  // 完整 RAG：检索到资料 → 交给 LLM 用人话组织答案；LLM 挂了降级为原文直发
-  if (llmConfigured(process.env)) {
-    const ctx = hits.filter(h => h.score >= 1)
-      .map((h, i) => '【资料' + (i + 1) + '：' + h.title + '】\n' + h.body)
-      .join('\n\n');
-    try {
-      const reply = await chat(process.env, SYSTEM_PROMPT, '资料：\n' + ctx + '\n\n用户问题：' + question, 40000);
-      log('LLM 回复成功（' + reply.length + ' 字）');
-      return reply;
-    } catch (e) {
-      log('LLM 调用失败，降级为原文直发：' + (e && e.message));
-    }
-  }
-  return '【' + best.title + '】\n\n' + best.body;
-}
-
 async function main() {
   const channel = createLarkChannel({
     appId: appId,
@@ -93,8 +69,69 @@ async function main() {
       const q = cleanQuestion(msg.content);
       log('收到问题（chat=' + msg.chatId + '）：' + q.slice(0, 100));
       if (!q) { log('空问题，跳过'); return; }
-      const ans = await answer(q);
-      await channel.send(msg.chatId, { markdown: ans }, { replyTo: msg.messageId, replyInThread: true });
+
+      const client = channel.getClient();
+
+      // 1. 立即回一条"处理中"状态（话题回复），让用户知道机器人已经在干活
+      let progressId = null;
+      try {
+        const progress = await client.im.message.reply({
+          path: { message_id: msg.messageId },
+          data: {
+            msg_type: 'text',
+            content: JSON.stringify({ text: '收到，正在检索资料…' }),
+            reply_in_thread: true,
+          },
+        });
+        progressId = progress && progress.data ? progress.data.message_id : null;
+        log('已发状态消息：' + progressId);
+      } catch (e) {
+        log('状态消息发送失败（继续走完整流程）：' + (e && e.message));
+      }
+
+      // 原地更新状态消息；更新失败不致命
+      const updateProgress = async (text) => {
+        if (!progressId) return;
+        try {
+          await client.im.message.update({
+            path: { message_id: progressId },
+            data: { msg_type: 'text', content: JSON.stringify({ text: text }) },
+          });
+        } catch (e) { log('状态更新失败：' + (e && e.message)); }
+      };
+
+      // 2. 检索（每次重新加载：改 kb/*.md 立即生效）
+      const kb = loadKB(KB_DIR);
+      const hits = retrieve(kb, q, 3);
+      const best = hits[0];
+      log('检索结果：' + hits.map(h => h.title + '=' + h.score).join('，'));
+
+      if (!best || best.score < 2) {
+        await updateProgress(buildFallback(kb));
+        log('无命中，已回复主题列表');
+        return;
+      }
+
+      // 3. 生成
+      let ans;
+      if (llmConfigured(process.env)) {
+        await updateProgress('检索完成（命中《' + best.title + '》），正在生成回答…');
+        const ctx = hits.filter(h => h.score >= 1)
+          .map((h, i) => '【资料' + (i + 1) + '：' + h.title + '】\n' + h.body)
+          .join('\n\n');
+        try {
+          ans = await chat(process.env, SYSTEM_PROMPT, '资料：\n' + ctx + '\n\n用户问题：' + q, 40000);
+          log('LLM 回复成功（' + ans.length + ' 字）');
+        } catch (e) {
+          log('LLM 调用失败，降级为原文直发：' + (e && e.message));
+          ans = '【' + best.title + '】\n\n' + best.body;
+        }
+      } else {
+        ans = '【' + best.title + '】\n\n' + best.body;
+      }
+
+      // 4. 把状态消息更新成最终答案
+      await updateProgress(ans);
       log('已回复（' + ans.length + ' 字）');
     } catch (e) {
       log('处理失败：' + (e && e.message));
@@ -108,8 +145,8 @@ async function main() {
   await channel.connect();
   const botName = channel.botIdentity ? channel.botIdentity.name : '(未知)';
   const llmInfo = llmConfigured(process.env) ? process.env.QA_BOT_LLM_MODEL : '未配置（原文直发模式）';
-  log('机器人已上线：' + botName + '，知识库 ' + loadKB(KB_DIR).length + ' 篇，LLM：' + llmInfo);
-  console.log('QA bot 已上线（长连接）：' + botName + ' | LLM：' + llmInfo);
+  log('机器人已上线：' + botName + '，知识库 ' + loadKB(KB_DIR).length + ' 篇，LLM：' + llmInfo + '，状态栏：开');
+  console.log('QA bot 已上线（长连接）：' + botName + ' | LLM：' + llmInfo + ' | 状态栏：开');
 }
 
 main().catch(e => { log('启动失败：' + (e && e.stack || e)); console.error(e); process.exit(1); });
