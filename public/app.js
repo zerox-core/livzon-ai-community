@@ -1339,7 +1339,9 @@ var SignupPage = () => {
       if (profile.deadline) h += "<div class='sig-deadline'>报名截止：" + esc(profile.deadline) + "</div>";
       if (profile.rules) h += "<div class='sig-rules'>" + profile.rules + "</div>";
       if (!isAuth) {
-        h += "<div class='sig-login'><p>报名需先登录飞书账号</p><a href='/login.html' class='sig-btn'>去登录 →</a></div>";
+        /* v37: 未登录——报名页直接弹「请登录」并自动跳登录页（原静态提示卡下线） */
+        h += "<div class='sig-login'><p>请先登录 · 正在前往登录页…</p><a href='/login.html' class='sig-btn'>立即登录 →</a></div>";
+        setTimeout(function () { if (!cancelled) { try { location.href = "/login.html"; } catch (e) {} } }, 1400);
       } else {
         if (draft) h += "<div class='sig-draft-bar' id='sigDraftBar'>⏳ 检测到未提交的草稿（" + esc(draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "") + "），已自动恢复<button type='button' id='sigDraftClear'>清空草稿</button></div>";
         h += "<form id='sigForm' class='sig-form'>";
@@ -1903,7 +1905,19 @@ var ActivitiesSection = () => {
             if (!m) return;
             var href = m.getAttribute("data-slide-href");
             if (!href) return;
-            if (href.charAt(0) === "#") { location.hash = href.slice(1); }
+            if (href.charAt(0) === "#") {
+              /* v37: 报名入口先过身份识别——未登录弹「请登录」再跳登录页 */
+              fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
+                if (j && j.authenticated) { location.hash = href.slice(1); return; }
+                var ov = document.createElement("div");
+                ov.style.cssText = "position:fixed;left:0;right:0;top:38%;z-index:9999;display:flex;justify-content:center;pointer-events:none;";
+                ov.innerHTML = "<div style=\"background:rgba(16,22,34,0.88);color:#fff;font-size:15px;letter-spacing:2px;padding:16px 34px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,0.35);opacity:0;transition:opacity .25s;\">请先登录 · 正在前往登录页…</div>";
+                document.body.appendChild(ov);
+                requestAnimationFrame(function () { if (ov.firstChild) ov.firstChild.style.opacity = "1"; });
+                setTimeout(function () { if (ov.firstChild) ov.firstChild.style.opacity = "0"; }, 1200);
+                setTimeout(function () { location.href = "/login.html"; }, 1600);
+              }).catch(function () { location.hash = href.slice(1); });
+            }
             else if (href.charAt(0) === "/") { location.href = href; }
             else { try { window.open(href, "_blank", "noopener"); } catch (_cardE) {} }
           });
@@ -1958,7 +1972,7 @@ var ActivitiesSection = () => {
               if (window.__bloomQueue) { window.__bloomQueue.push(cb); return; }
               window.__bloomQueue = [cb];
               var sc = document.createElement("script");
-              sc.src = "/bloom-carousel.js?v=20260911r4";
+              sc.src = "/bloom-carousel.js?v=20260911r5";
               sc.onload = function () { var q = window.__bloomQueue || []; window.__bloomQueue = null; q.forEach(function (f) { f(); }); };
               sc.onerror = function () { window.__bloomQueue = null; };
               document.head.appendChild(sc);
