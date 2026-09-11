@@ -107,7 +107,9 @@ async function main() {
       log('检索结果：' + hits.map(h => h.title + '=' + h.score).join('，'));
 
       if (!best || best.score < 2) {
-        await updateProgress(buildFallback(kb));
+        const fb = buildFallback(kb);
+        if (progressId) await updateProgress(fb);
+        else await channel.send(msg.chatId, { markdown: fb }, { replyTo: msg.messageId, replyInThread: true });
         log('无命中，已回复主题列表');
         return;
       }
@@ -130,8 +132,9 @@ async function main() {
         ans = '【' + best.title + '】\n\n' + best.body;
       }
 
-      // 4. 把状态消息更新成最终答案
-      await updateProgress(ans);
+      // 4. 把状态消息更新成最终答案；状态消息没发出去就走正常发送兜底
+      if (progressId) await updateProgress(ans);
+      else await channel.send(msg.chatId, { markdown: ans }, { replyTo: msg.messageId, replyInThread: true });
       log('已回复（' + ans.length + ' 字）');
     } catch (e) {
       log('处理失败：' + (e && e.message));
