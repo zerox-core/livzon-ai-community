@@ -4844,6 +4844,8 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
     var scene, camera, renderer, group, groundMesh, groundMat, shadowMat, shadowMesh;
     var vaseMesh = null, vaseTopRadius = 3;
     var tilesMesh = null, tileData = null;
+    /* v36: 二维码定格后的常驻花瓣飘舞 */
+    var flutterMesh = null, flutterData = null, tmpFE = new THREE.Euler();
     var instancers = [], ee = null, butterflies = [], wingL, wingR;
     var elapsedBase = performance.now(), lastNow = performance.now();
     var tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(),
@@ -5066,6 +5068,31 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
         if (tilesMesh.instanceColor) tilesMesh.instanceColor.needsUpdate = true;
         for (var t0 = 0; t0 < tw; t0++) { tmpM.makeScale(0, 0, 0); tilesMesh.setMatrixAt(t0, tmpM); }
         tilesMesh.instanceMatrix.needsUpdate = true;
+        /* v36: 常驻花瓣飘舞——二维码定格后持续有花瓣从空中飘落，落到接近地面时缩小消失，不遮码 */
+        if (flutterMesh) { try { group.remove(flutterMesh); flutterMesh.material.dispose(); } catch (e) {} flutterMesh = null; }
+        var FN = 24;
+        var fMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        flutterMesh = new THREE.InstancedMesh(blossomModel.geometry, fMat, FN);
+        flutterMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        flutterMesh.frustumCulled = false;
+        flutterMesh.setColorAt(0, tmpC.set(0xffffff));
+        group.add(flutterMesh);
+        var fPal = QR_PALETTES[speciesId] || QR_PALETTES.peony;
+        flutterData = { pos: new Float32Array(2 * FN), spd: new Float32Array(FN), ph: new Float32Array(FN), sw1: new Float32Array(FN), sw2: new Float32Array(FN), rot: new Float32Array(3 * FN), count: FN };
+        for (var fi0 = 0; fi0 < FN; fi0++) {
+          flutterData.pos[2 * fi0] = (rand() * 2 - 1) * (half + 3);
+          flutterData.pos[2 * fi0 + 1] = (rand() * 2 - 1) * (half + 3);
+          flutterData.spd[fi0] = 0.09 + rand() * 0.11;
+          flutterData.ph[fi0] = rand();
+          flutterData.sw1[fi0] = 0.5 + rand() * 0.5;
+          flutterData.sw2[fi0] = 0.5 + rand() * 0.5;
+          flutterData.rot[3 * fi0] = rand() * 6.2832; flutterData.rot[3 * fi0 + 1] = rand() * 6.2832; flutterData.rot[3 * fi0 + 2] = rand() * 6.2832;
+          var ftint = rand() < 0.78 ? fPal[Math.floor(rand() * fPal.length)] : QR_LEAF[Math.floor(rand() * QR_LEAF.length)];
+          flutterMesh.setColorAt(fi0, tmpC.set(ftint));
+        }
+        if (flutterMesh.instanceColor) flutterMesh.instanceColor.needsUpdate = true;
+        for (var fpz0 = 0; fpz0 < FN; fpz0++) { tmpM.makeScale(0, 0, 0); flutterMesh.setMatrixAt(fpz0, tmpM); }
+        flutterMesh.instanceMatrix.needsUpdate = true;
         groundMat.map = null;
         groundMat.color.set(0xffffff);
         groundMat.needsUpdate = true;
@@ -5175,6 +5202,31 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
           tilesMesh.setMatrixAt(t2, tmpM);
         }
         tilesMesh.instanceMatrix.needsUpdate = true;
+      }
+
+      /* v36: 二维码定格后的常驻花瓣飘舞——et>0.9 渐入，落到底部前缩小消失，持续飘不遮码 */
+      if (flutterMesh && flutterData) {
+        var fq = et > 0.9 ? smoothstep((et - 0.9) / 0.1) : 0;
+        if (fq > 0) {
+          for (var fp = 0; fp < flutterData.count; fp++) {
+            var lt = (now * flutterData.spd[fp] + flutterData.ph[fp]) % 1;
+            var fyy = 8 * (1 - lt) + 0.6;
+            tmpV.set(
+              flutterData.pos[2 * fp] + Math.sin(lt * 6.2832 + flutterData.rot[3 * fp]) * 1.1 * flutterData.sw1[fp],
+              fyy,
+              flutterData.pos[2 * fp + 1] + Math.cos(lt * 6.2832 + flutterData.rot[3 * fp + 1]) * 0.8 * flutterData.sw2[fp]
+            );
+            tmpFE.set(flutterData.rot[3 * fp] + lt * 5, flutterData.rot[3 * fp + 1] + lt * 4, flutterData.rot[3 * fp + 2] + lt * 3);
+            tmpQ.setFromEuler(tmpFE);
+            var fscl = fq * Math.sin(lt * Math.PI) * 0.8;
+            tmpS.set(fscl, fscl, fscl);
+            tmpM.compose(tmpV, tmpQ, tmpS);
+            flutterMesh.setMatrixAt(fp, tmpM);
+          }
+        } else {
+          for (var fpz = 0; fpz < flutterData.count; fpz++) { tmpM.makeScale(0, 0, 0); flutterMesh.setMatrixAt(fpz, tmpM); }
+        }
+        flutterMesh.instanceMatrix.needsUpdate = true;
       }
 
       /* ground board scale lerp 0.46 -> 1 */
@@ -5293,6 +5345,7 @@ window.MODELS_B64={"leaves": "Z2xURgIAAACQ0AMAQAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb2
       try { renderer.dispose(); } catch (e) {}
       try { if (groundMat && groundMat.map) groundMat.map.dispose(); } catch (e) {}
       try { if (tilesMesh) { tilesMesh.geometry.dispose(); tilesMesh.material.dispose(); } } catch (e) {}
+      try { if (flutterMesh) { flutterMesh.material.dispose(); } } catch (e) {}
       instancers.forEach(function (inst) { try { inst.mesh.dispose(); } catch (e) {} });
       if (canvasHost.parentNode) canvasHost.parentNode.removeChild(canvasHost);
       hostEl.classList.remove('bloom-ready');
