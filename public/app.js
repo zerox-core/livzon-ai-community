@@ -1972,7 +1972,7 @@ var ActivitiesSection = () => {
               if (window.__bloomQueue) { window.__bloomQueue.push(cb); return; }
               window.__bloomQueue = [cb];
               var sc = document.createElement("script");
-              sc.src = "/bloom-carousel.js?v=20260911r5";
+              sc.src = "/bloom-carousel.js?v=20260911r6";
               sc.onload = function () { var q = window.__bloomQueue || []; window.__bloomQueue = null; q.forEach(function (f) { f(); }); };
               sc.onerror = function () { window.__bloomQueue = null; };
               document.head.appendChild(sc);
