@@ -18,7 +18,7 @@ const { sanitizeProfile } = require('../lib/signup-form');
 const router = express.Router();
 const lark = new LarkClient(process.env);
 
-const FIELDS = `id, kind, title, author, category, description, cover, source, session, status, published, wall_order, created_at`;
+const FIELDS = `id, kind, title, author, category, description, cover, source, session, activity_id, status, published, wall_order, created_at`;
 
 // 读取视图用的角色：session 优先，开发态回退旧头（不影响写接口的强校验）
 function viewRole(req) {
@@ -55,7 +55,7 @@ router.patch('/works/:id', adminRequired, async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
 
-  const { status, published, wall_order } = req.body || {};
+  const { status, published, wall_order, activity_id } = req.body || {};
   if (status && !['pending', 'approved', 'rejected'].includes(status)) {
     return res.status(400).json(err(ErrorCodes.VALIDATION, 'status 取值非法'));
   }
@@ -66,17 +66,26 @@ router.patch('/works/:id', adminRequired, async (req, res) => {
       && (!Number.isInteger(wall_order) || wall_order < 1 || wall_order > 28)) {
     return res.status(400).json(err(ErrorCodes.VALIDATION, 'wall_order 应为 1..28 的整数或 null'));
   }
+  // activity_id：票池归属（'' = 自由展区）；字符串校验在这里，活动存在性在 try 内查
+  if (activity_id !== undefined && (typeof activity_id !== 'string' || activity_id.length > 60)) {
+    return res.status(400).json(err(ErrorCodes.VALIDATION, 'activity_id 应为 ≤60 字符的字符串或空串'));
+  }
 
   const sets = [];
   const vals = [id];
   if (status) { vals.push(status); sets.push(`status=$${vals.length}`); }
   if (published != null) { vals.push(published); sets.push(`published=$${vals.length}`); }
+  if (activity_id !== undefined) { vals.push(activity_id); sets.push(`activity_id=$${vals.length}`); }
   // 下架/驳回时强制撤墙；否则按显式传入的 wall_order 处理
   const effectiveWall = (published === false || status === 'rejected') ? null : wall_order;
   if (effectiveWall !== undefined) { vals.push(effectiveWall); sets.push(`wall_order=$${vals.length}`); }
   if (!sets.length) return res.status(400).json(err(ErrorCodes.VALIDATION, '无可更新字段'));
 
   try {
+    if (activity_id) {
+      const a = await query(`SELECT id, title FROM activities WHERE id=$1`, [activity_id]);
+      if (!a.rows.length) return res.status(400).json(err(ErrorCodes.VALIDATION, `活动 ${activity_id} 不存在`));
+    }
     if (effectiveWall != null) {
       // 展位冲突检测：同展位且不是本作品的其他行（unique 部分索引兜底）
       const c = await query(

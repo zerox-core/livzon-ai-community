@@ -93,6 +93,14 @@
           </div>
 
           <div class="field">
+            <label>所属活动（投票票池）</label>
+            <select name="activity" id="activitySel">
+              <option value="">自由展区（不挂任何活动）</option>
+            </select>
+            <div class="hint">选挂哪期活动：投票按「每人每期活动每天 1 票」计；不选则进自由展区</div>
+          </div>
+
+          <div class="field">
             <label>简介</label>
             <textarea name="description" maxlength="2000" placeholder="简要描述这件作品的创意与亮点"></textarea>
           </div>
@@ -123,6 +131,14 @@
 
           <button class="btn primary" type="submit" id="submitBtn" style="width:100%;">提交作品</button>
           <div class="msg" id="msg"></div>
+          <div id="shareBox" style="display:none;margin-top:14px;padding:14px 16px;border:1px solid rgba(91,140,255,0.35);border-radius:8px;background:rgba(91,140,255,0.06);">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px;">提交成功！这是你的作品拉票链接：</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="shareUrl" readonly style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;color:#333;">
+              <button type="button" class="btn" id="copyShare" style="white-space:nowrap;">复制链接</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:8px;">发给朋友「帮我投投票」——每人每期活动每天 1 票，次日重置、不囤积。作品审核通过并发布后，链接即可投票。</div>
+          </div>
         </form>
       </div>
     </div>
@@ -148,6 +164,30 @@
 
 <script>
   var form = document.getElementById('uploadForm');
+
+  // 所属活动下拉：进行中 + 未开始的活动（票池）
+  try {
+    fetch('/api/activities').then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok || !j.data) return;
+      var sel = document.getElementById('activitySel');
+      [].concat(j.data.current || [], j.data.upcoming || []).forEach(function (a) {
+        var o = document.createElement('option');
+        o.value = a.id || '';
+        o.textContent = (a.title || a.name || a.id || '') + '（每天 1 票）';
+        sel.appendChild(o);
+      });
+    }).catch(function () {});
+  } catch (e) {}
+
+  // 复制拉票链接
+  document.getElementById('copyShare').addEventListener('click', function () {
+    var inp = document.getElementById('shareUrl');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(inp.value); showMsg('链接已复制，发给朋友帮你拉票吧', 'ok'); return; }
+    } catch (e) {}
+    try { inp.select(); document.execCommand('copy'); showMsg('链接已复制，发给朋友帮你拉票吧', 'ok'); }
+    catch (e) { showMsg('复制失败，请手动复制链接', 'err'); }
+  });
   var btn = document.getElementById('submitBtn');
   var msg = document.getElementById('msg');
 
@@ -190,6 +230,7 @@
       description: (fd.get('description') || '').trim(),
       cover: (fd.get('cover') || '').trim(),
       link: (fd.get('link') || '').trim(),
+      activityId: (fd.get('activity') || ''),
       detail: { theme: (fd.get('theme') || '').trim() }
     };
     if (!payload.kind || !payload.title || !payload.author) { showMsg('请填写必填项：作品类型、标题、作者', 'err'); return; }
@@ -215,7 +256,10 @@
         } else {
           showMsg('提交成功！作品已进入待审核队列，管理员通过后将对外展示。', 'ok');
         }
+        var sb = document.getElementById('shareBox'), su = document.getElementById('shareUrl');
+        if (sb && su && newId) { su.value = window.location.origin + '/#home?work=' + newId; sb.style.display = ''; }
         form.reset();
+        var aSel = document.getElementById('activitySel'); if (aSel) aSel.value = '';
         document.querySelectorAll('#kindSeg .kind-opt').forEach(function (o) { o.classList.remove('active'); });
         document.getElementById('pvThumb').innerHTML = '<span class="ph">NO COVER</span>';
         document.getElementById('pvKind').textContent = '—'; document.getElementById('pvTitle').textContent = '—'; document.getElementById('pvAuthor').textContent = '—'; document.getElementById('pvDesc').textContent = '尚未输入内容';

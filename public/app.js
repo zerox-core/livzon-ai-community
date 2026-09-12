@@ -577,7 +577,7 @@ var AdminPage = () => {
       return fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
     }
     // ===== 列表状态（筛选 + 搜索 + 徽标）=====
-    var worksCache = [], regsCache = [];
+    var worksCache = [], regsCache = [], actsCache = [];
     var worksFilter = "all", worksQ = "", regsFilter = "all", regsQ = "";
     function setBadge(tab, n) {
       var el = document.getElementById("adm-badge-" + tab);
@@ -600,15 +600,24 @@ var AdminPage = () => {
         .filter(function (x) { return worksFilter === "all" || x.status === worksFilter; })
         .filter(function (x) { if (!q) return true; return (String(x.title || "") + " " + String(x.kind || "") + " " + String(x.author || "")).toLowerCase().indexOf(q) > -1; });
     }
+    var poolSel = function (x) {
+      var cur = x.activity_id || "";
+      var opts = ["<option value=''>自由展区</option>"].concat((actsCache || []).map(function (a) {
+        var v = a.id || "";
+        var lbl = String(a.title || a.name || a.id || "").slice(0, 18);
+        return "<option value=\"" + esc(v) + "\"" + (cur === v ? " selected" : "") + ">" + esc(lbl) + "</option>";
+      })).join("");
+      return "<select style='width:140px;padding:4px 6px;border:1px solid rgba(0,0,0,0.12);border-radius:4px;background:#fff' onchange=\"window.myAdminPool(" + x.id + ",this.value)\">" + opts + "</select>";
+    };
     function worksBodyHtml(flt) {
       if (!flt.length) return "<div class='adm-empty'><span class='adm-empty-i'>🗂️</span>没有符合条件的作品</div>";
       return "<div class='adm-note'>共 " + flt.length + " 件作品</div>" +
-        "<div class='adm-tbl-wrap'><table class='my-table adm-table min-w-860'><thead><tr><th>作品</th><th style='width:210px'>作者</th><th style='width:110px'>状态</th><th style='width:110px'>发布</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
+        "<div class='adm-tbl-wrap'><table class='my-table adm-table min-w-860'><thead><tr><th>作品</th><th style='width:210px'>作者</th><th style='width:110px'>状态</th><th style='width:110px'>发布</th><th style='width:140px'>票池</th><th style='width:210px'>操作</th></tr></thead><tbody>" +
         flt.map(function (x) {
           var acts = "";
           if (x.status === "pending") acts += "<button class='adm-btn ok' onclick=\"window.myAdminWork(" + x.id + ",'approved')\">✓ 通过</button><button class='adm-btn no' onclick=\"window.myAdminWork(" + x.id + ",'rejected')\">✕ 驳回</button>";
           if (x.status === "approved") acts += "<button class='adm-btn' onclick=\"window.myAdminPub(" + x.id + "," + (!x.published) + ")\">" + (x.published ? "下架" : "上架") + "</button>";
-          return "<tr><td><b>" + esc(x.title) + "</b></td><td>" + esc(x.author || "—") + "</td><td>" + pill(x.status) + "</td><td>" + (x.published ? "<span class='adm-pub on'>● 已发布</span>" : "<span class='adm-pub'>○ 未发布</span>") + "</td><td class='adm-ops'>" + (acts || "<span class='adm-done'>—</span>") + "</td></tr>";
+          return "<tr><td><b>" + esc(x.title) + "</b></td><td>" + esc(x.author || "—") + "</td><td>" + pill(x.status) + "</td><td>" + (x.published ? "<span class='adm-pub on'>● 已发布</span>" : "<span class='adm-pub'>○ 未发布</span>") + "</td><td>" + poolSel(x) + "</td><td class='adm-ops'>" + (acts || "<span class='adm-done'>—</span>") + "</td></tr>";
         }).join("") + "</tbody></table></div>";
     }
     function renderWorks() {
@@ -730,6 +739,7 @@ var AdminPage = () => {
     function initAdmin() {
       loadWorks();
       loadRegs();
+      loadActs();
       window.myAdminTab = function (t) {
         ["works", "regs", "resv", "sgn", "form", "sys"].forEach(function (k) {
           var el = document.getElementById("adm-" + k);
@@ -746,6 +756,16 @@ var AdminPage = () => {
       };
       window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
       window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
+      window.myAdminPool = function (id, pool) { patchJson("/api/admin/works/" + id, { activity_id: pool }).then(function () { loadWorks(); }); };
+      function loadActs() {
+        fetch("/api/activities").then(function (r) { return r.json(); }).then(function (j) {
+          if (cancelled) return;
+          if (!j.ok) return;
+          var d = j.data || {};
+          actsCache = [].concat(d.current || [], d.upcoming || [], d.past || []);
+          renderWorks();
+        }).catch(function () {});
+      }
       window.myAdminReg = function (id, status) { patchJson("/api/admin/registrations/" + id, { status: status }).then(function () { loadRegs(); }); };
       window.myAdminSignup = function (id, status) { patchJson("/api/admin/activities/signups/" + id, { status: status }).then(function () { loadSignups(); }); };
       window.myAdminWorksFilter = function (v) { worksFilter = v; renderWorks(); };
@@ -1063,7 +1083,7 @@ var AdminPage = () => {
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminSignup", "myAdminScan", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminSignup", "myAdminScan", "myAdminPool", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
@@ -6370,12 +6390,12 @@ var JoinSection = () => {
     }
   }, "提交后将通过飞书工单流转审批 · 预计 3 个工作日内反馈"))));
 };
-// 作品投票按钮：GET /api/vote/status 取票数+已投态；点击 POST /api/vote；未登录(401)提示去登录
+// 作品投票按钮（每日一票制）：GET /api/vote/status 取票数+今日票池状态；点击 POST /api/vote；未登录(401)提示去登录
 var VoteButton = ({ workId }) => {
   var el = React.createElement;
   var st = React.useState, ef = React.useEffect;
   var [count, setCount] = st(0);
-  var [voted, setVoted] = st(false);
+  var [used, setUsed] = st(false);
   var [mine, setMine] = st(false);
   var [busy, setBusy] = st(false);
   var [hint, setHint] = st("");
@@ -6386,19 +6406,19 @@ var VoteButton = ({ workId }) => {
       setMine(!!(j && j.authenticated && j.data && j.data.userId));
     }).catch(function () {});
     fetch("/api/vote/status?work_id=" + encodeURIComponent(workId)).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      if (j && j.ok && j.data) { setCount(j.data.count | 0); setVoted(!!j.data.voted); }
+      if (j && j.ok && j.data) { setCount(j.data.count | 0); setUsed(!!j.data.ticketUsedToday); }
     }).catch(function () {});
   }, [workId]);
   var cast = function () {
     if (!mine) { flash("登录后才能投票"); return; }
-    if (voted || busy) return;
+    if (used || busy) return;
     setBusy(true);
     fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workId: workId }) })
       .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
       .then(function (res) {
         if (res.s === 401) flash("登录后才能投票");
-        else if (res.s === 409) { setVoted(true); flash("你已经为该作品投过票啦"); }
-        else if (res.b && res.b.ok) { setVoted(true); setCount(function (c) { return c + 1; }); }
+        else if (res.s === 409) { setUsed(true); flash((res.b && res.b.error && res.b.error.message) || "今天的票已用完啦，明天再来"); }
+        else if (res.b && res.b.ok) { setUsed(true); setCount(function (c) { return c + 1; }); flash("投票成功！明天还有一张新票"); }
         else flash("投票失败，请稍后再试");
       })
       .catch(function () { flash("网络异常，请稍后再试"); })
@@ -6406,24 +6426,25 @@ var VoteButton = ({ workId }) => {
   };
   var btnStyle = {
     width: "100%",
-    background: voted ? "#fce8ea" : "#1a1a1f",
-    color: voted ? "#c0392b" : "#fff",
-    border: voted ? "1px solid #f0c2c8" : "none",
+    background: used ? "#fce8ea" : "#1a1a1f",
+    color: used ? "#c0392b" : "#fff",
+    border: used ? "1px solid #f0c2c8" : "none",
     padding: "14px",
     borderRadius: 4,
     fontSize: 14,
     fontWeight: 500,
-    cursor: voted || busy ? "default" : "pointer",
+    cursor: used || busy ? "default" : "pointer",
     letterSpacing: 1,
-    marginBottom: 12,
+    marginBottom: 8,
     transition: "all 0.2s ease"
   };
   return el("div", { style: { marginBottom: 4 } },
     el("button", {
-      style: btnStyle, disabled: voted || busy, onClick: cast,
-      onMouseEnter: function (e) { if (!voted && !busy) e.currentTarget.style.background = "#2d2d34"; },
-      onMouseLeave: function (e) { if (!voted && !busy) e.currentTarget.style.background = "#1a1a1f"; }
-    }, (voted ? "♥ 已投票 · " : "♡ 投一票 · ") + count + " 票"),
+      style: btnStyle, disabled: used || busy, onClick: cast,
+      onMouseEnter: function (e) { if (!used && !busy) e.currentTarget.style.background = "#2d2d34"; },
+      onMouseLeave: function (e) { if (!used && !busy) e.currentTarget.style.background = "#1a1a1f"; }
+    }, (used ? "♥ 已投今天的票 · " : "♡ 投一票 · ") + count + " 票"),
+    el("div", { style: { fontSize: 11, color: "#999", marginBottom: 8, textAlign: "center" } }, "每人每期活动每天 1 票 · 次日重置 · 票不囤积"),
     !mine ? el("div", { style: { fontSize: 11, color: "#999", marginBottom: 8 } },
       "登录后即可投票 · ", el("a", { href: "/login.html", style: { color: "#2568d8", textDecoration: "none" } }, "去登录")) : null,
     hint ? el("div", { style: { fontSize: 12, color: "#c0392b", marginBottom: 8, textAlign: "center" } }, hint) : null);
@@ -7058,6 +7079,11 @@ var App = () => {
         setPage(h);
         setSelectedWork(null); // hash 切页即离开作品详情：不清掉会挡住首页渲染（浏览器后退同路径）
         window.__pageScrollCur = h;
+        // 深链直达展区详情：#home?work=NN → 展区打开该作品（分享拉票链接落地页）
+        if (h === "home") {
+          var wq = /(?:^|[?&])work=(\d+)/.exec(String(window.location.hash || ""));
+          if (wq) { try { window.dispatchEvent(new CustomEvent("pingceOpenWork", { detail: { workId: Number(wq[1]) } })); } catch (_) {} }
+        }
         var sy = ((window.__pageScroll || {})[h]) || 0;
         try { window.scrollTo(0, sy); } catch (_) {}
         if (sy > 0) {
@@ -7335,78 +7361,204 @@ var App = () => {
         }
       `));
 };
-// ===== 巨幕下方 · 活动作品走廊（罗列全部已发布作品；点击进详情或浮层；上墙与否则由管理员人工筛选） =====
+// ===== 首页 · 作品展区（全部已发布作品的信息流：搜索 / 类型 / 票池 / 排序 / 卡片直接投票；60 秒自动刷新；#home?work=NN 深链拉票） =====
 var HomeGallery = ({ onWorkClick }) => {
-  const [works, setWorks] = React.useState([]);
-  const [loaded, setLoaded] = React.useState(false);
-  const [openWork, setOpenWork] = React.useState(null); // 未上墙作品的详情浮层（上墙作品走巨幕详情页）
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch("/api/works/gallery").then(function (r) {
-      return r.ok ? r.json() : Promise.reject(r.status);
-    }).then(function (j) {
-      if (cancelled) return;
-      setWorks((j && j.data && j.data.works) || []);
+  var el = React.createElement;
+  var st = React.useState, ef = React.useEffect, ref = React.useRef;
+  var [works, setWorks] = st([]);
+  var [total, setTotal] = st(0);
+  var [loaded, setLoaded] = st(false);
+  var [openWork, setOpenWork] = st(null); // 作品详情浮层（上墙作品走巨幕详情页）
+  var [q, setQ] = st("");
+  var [kind, setKind] = st("all");
+  var [pool, setPool] = st("all");
+  var [sort, setSort] = st("new");
+  var [acts, setActs] = st([]);
+  var [myToday, setMyToday] = st({});
+  var [msg, setMsg] = st("");
+  var flash = function (m) { setMsg(m); setTimeout(function () { setMsg(""); }, 2800); };
+  var qR = ref(""), kindR = ref("all"), poolR = ref("all"), sortR = ref("new"), firstR = ref(true);
+  qR.current = q; kindR.current = kind; poolR.current = pool; sortR.current = sort;
+  var KINDS = [["all", "全部"], ["image", "图片"], ["video", "视频"], ["3d", "3D"], ["app", "小程序/产品"], ["tool", "工具/插件"], ["skill", "Skill"], ["mcp", "MCP"], ["source", "源码包"]];
+  var load = function () {
+    var p = new URLSearchParams();
+    if (qR.current) p.set("q", qR.current);
+    if (kindR.current !== "all") p.set("kind", kindR.current);
+    if (poolR.current !== "all") p.set("activity_id", poolR.current);
+    p.set("sort", sortR.current);
+    p.set("limit", "60");
+    fetch("/api/works/feed?" + p.toString()).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.ok && j.data) { setWorks(j.data.works || []); setTotal(j.data.total | 0); }
       setLoaded(true);
-    }).catch(function () { if (!cancelled) setLoaded(true); });
-    return function () { cancelled = true; };
+    }).catch(function () { setLoaded(true); });
+    fetch("/api/vote/my-today").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.ok && j.data && j.data.votes) {
+        var m = {}; j.data.votes.forEach(function (v) { m[v.work_id] = v.activity_id || ""; }); setMyToday(m);
+      }
+    }).catch(function () {});
+  };
+  ef(function () {
+    fetch("/api/activities").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.ok && j.data) setActs([].concat(j.data.current || [], j.data.upcoming || []));
+    }).catch(function () {});
+    load();
+    var t = setInterval(function () {
+      if (document.visibilityState && document.visibilityState !== "visible") return;
+      load();
+    }, 60000);
+    return function () { clearInterval(t); };
   }, []);
-  const open = (w) => {
+  // 深链直达：#home?work=NN 或 pingceOpenWork 事件 → 打开该作品详情浮层（分享拉票链接落地页）
+  ef(function () {
+    var openById = function (wid) {
+      fetch("/api/works/feed?limit=120").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!(j && j.ok && j.data && j.data.works)) return;
+        var w = j.data.works.filter(function (x) { return Number(x.id) === Number(wid); })[0];
+        if (w) setOpenWork(w);
+      }).catch(function () {});
+    };
+    var onEvt = function (e) { var d = (e && e.detail) || {}; if (d.workId != null) openById(d.workId); };
+    window.addEventListener("pingceOpenWork", onEvt);
+    var m = /(?:^|[?&])work=(\d+)/.exec(String(window.location.hash || ""));
+    if (m) openById(Number(m[1]));
+    return function () { window.removeEventListener("pingceOpenWork", onEvt); };
+  }, []);
+  // 筛选条件变化 → 350ms 防抖重载
+  ef(function () {
+    if (firstR.current) { firstR.current = false; return; }
+    var t = setTimeout(load, 350);
+    return function () { clearTimeout(t); };
+  }, [q, kind, pool, sort]);
+  var poolLabel = function (p) {
+    if (p === "all") return "全部作品";
+    if (p === "") return "自由展区";
+    for (var i = 0; i < acts.length; i++) if (acts[i].id === p) return acts[i].title || acts[i].name || p;
+    return p;
+  };
+  var ticketUsed = Object.keys(myToday).some(function (k) { return myToday[k] === pool; });
+  var open = function (w) {
     if (w.wall_order && onWorkClick) { onWorkClick(w.wall_order - 1); return; }
     setOpenWork(w);
   };
-  const card = (w) => React.createElement("div", {
-    key: w.id,
-    onClick: () => open(w),
-    style: {
-      cursor: "pointer", background: "#fff", borderRadius: 6, overflow: "hidden",
-      border: "1px solid rgba(0,0,0,0.06)", transition: "transform .25s, box-shadow .25s"
+  var castVote = function (w, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workId: w.id }) })
+      .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
+      .then(function (res) {
+        if (res.s === 401) flash("登录后才能投票");
+        else if (res.s === 409) flash((res.b && res.b.error && res.b.error.message) || "今天的票已用完啦，明天再来");
+        else if (res.b && res.b.ok) flash("投票成功！明天还有一张新票");
+        else flash("投票失败，请稍后再试");
+        load();
+      })
+      .catch(function () { flash("网络异常，请稍后再试"); });
+  };
+  var copyShare = function (url) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(url); flash("链接已复制，发给朋友帮你拉票吧"); return; }
+    } catch (_) {}
+    try {
+      var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta); flash("链接已复制，发给朋友帮你拉票吧");
+    } catch (_) { flash("复制失败，请手动复制输入框里的链接"); }
+  };
+  var chip = function (cur, v, lbl, onClick, key) {
+    var on = cur === v;
+    return el("button", {
+      key: key || v, onClick: onClick,
+      style: { border: "1px solid " + (on ? "#1a1a1f" : "rgba(0,0,0,0.14)"), background: on ? "#1a1a1f" : "#fff", color: on ? "#fff" : "#555", borderRadius: 999, padding: "6px 14px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", transition: "all .15s ease" }
+    }, lbl);
+  };
+  var voteBtn = function (w) {
+    var used = myToday[w.id] != null;
+    return el("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } },
+      el("button", {
+        onClick: function (e) { castVote(w, e); },
+        style: { flex: 1, border: "none", background: used ? "#f2ece6" : "#1a1a1f", color: used ? "#b08d57" : "#fff", borderRadius: 4, padding: "9px 0", fontSize: 12, letterSpacing: 1, cursor: used ? "default" : "pointer", transition: "all .15s ease" }
+      }, used ? "今日已投" : "投一票"),
+      el("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "#8a857d", minWidth: 46, textAlign: "right" } }, "♥ " + ((w.vote_count | 0) || 0)));
+  };
+  var card = function (w, idx) {
+    var isNew = w.created_at && (Date.now() - new Date(w.created_at).getTime() < 72 * 3600 * 1000);
+    return el("div", {
+      key: w.id, onClick: function () { open(w); },
+      onMouseEnter: function (e) { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 32px rgba(0,0,0,0.08)"; },
+      onMouseLeave: function (e) { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; },
+      style: { cursor: "pointer", background: "#fff", borderRadius: 6, overflow: "hidden", border: "1px solid rgba(0,0,0,0.06)", transition: "transform .25s, box-shadow .25s" }
     },
-    onMouseEnter: (e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 32px rgba(0,0,0,0.08)"; },
-    onMouseLeave: (e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }
-  },
-    React.createElement("div", { style: { aspectRatio: "4/3", background: "#eceae6", position: "relative" } },
-      w.cover && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0
-        ? React.createElement("img", { src: w.cover, alt: "", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
-        : React.createElement("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b9b4ac", fontSize: 12, letterSpacing: 2 } }, (w.category || w.kind || "WORK").toUpperCase()),
-      w.wall_order ? React.createElement("span", { style: { position: "absolute", top: 8, left: 8, background: "rgba(10,10,13,0.72)", color: "#fff", fontSize: 10, letterSpacing: 1, padding: "3px 8px", borderRadius: 3, fontFamily: "'JetBrains Mono', monospace" } }, "巨幕 №" + w.wall_order) : null
-    ),
-    React.createElement("div", { style: { padding: "14px 16px 16px" } },
-      React.createElement("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, w.title || "未命名作品"),
-      React.createElement("div", { style: { fontSize: 12, color: "#8a857d", marginTop: 5, display: "flex", justifyContent: "space-between" } },
-        React.createElement("span", null, w.author || "—"),
-        React.createElement("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10 } }, (w.category || w.kind || "").toUpperCase()))));
-  return React.createElement("section", {
-    className: "page-section",
+      el("div", { style: { aspectRatio: "4/3", background: "#eceae6", position: "relative" } },
+        w.cover && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0
+          ? el("img", { src: w.cover, alt: "", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
+          : el("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b9b4ac", fontSize: 12, letterSpacing: 2 } }, (w.category || w.kind || "WORK").toUpperCase()),
+        w.wall_order ? el("span", { style: { position: "absolute", top: 8, left: 8, background: "rgba(10,10,13,0.72)", color: "#fff", fontSize: 10, letterSpacing: 1, padding: "3px 8px", borderRadius: 3, fontFamily: "'JetBrains Mono', monospace" } }, "巨幕 №" + w.wall_order) : null,
+        sort === "hot" && idx < 3 ? el("span", { style: { position: "absolute", top: 8, right: 8, background: "#c0392b", color: "#fff", fontSize: 10, letterSpacing: 1, padding: "3px 8px", borderRadius: 3, fontFamily: "'JetBrains Mono', monospace" } }, "TOP " + (idx + 1)) : null,
+        isNew ? el("span", { style: { position: "absolute", bottom: 8, right: 8, background: "rgba(10,10,13,0.72)", color: "#fff", fontSize: 10, letterSpacing: 1, padding: "3px 8px", borderRadius: 3, fontFamily: "'JetBrains Mono', monospace" } }, "NEW") : null),
+      el("div", { style: { padding: "14px 16px 16px" } },
+        el("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, w.title || "未命名作品"),
+        el("div", { style: { fontSize: 12, color: "#8a857d", marginTop: 5, display: "flex", justifyContent: "space-between" } },
+          el("span", null, w.author || "—"),
+          el("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10 } }, (w.category || w.kind || "").toUpperCase())),
+        voteBtn(w)));
+  };
+  var shareUrl = openWork ? (window.location.origin + "/#home?work=" + openWork.id) : "";
+  return el("section", {
+    id: "home-gallery", className: "page-section",
     style: { background: "#f8f8f6", color: "#1a1a1f", padding: "88px 64px 96px", borderTop: "1px solid rgba(0,0,0,0.05)" }
   },
-    React.createElement("div", { className: "page-container", style: { maxWidth: 1200, margin: "0 auto" } },
-      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 36 } },
-        React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 11, color: "#999", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 } }, "COMMUNITY GALLERY · 活动作品走廊"),
-          React.createElement("div", { style: { fontSize: 26, fontWeight: 300, letterSpacing: 1, fontFamily: "'Noto Serif SC', serif" } }, "各活动发布的作品")),
-        React.createElement("div", { style: { fontSize: 12, color: "#999", maxWidth: 320, textAlign: "right", lineHeight: 1.7 } },
-          "审核通过并发布的作品在此罗列；管理员可从中人工筛选「提上巨幕」。")),
-      !loaded ? null :
-        (works.length ? React.createElement("div", {
-          style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }
-        }, works.map(card)) :
-          React.createElement("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } },
-            "暂无已发布作品——在「上传作品」页提交并通过审核后，会自动罗列在这里。"))),
-    openWork && React.createElement("div", { onClick: () => setOpenWork(null),
+    el("div", { className: "page-container", style: { maxWidth: 1200, margin: "0 auto" } },
+      el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 } },
+        el("div", null,
+          el("div", { style: { fontSize: 11, color: "#999", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 } }, "COMMUNITY EXHIBITION · 作品展区"),
+          el("div", { style: { fontSize: 26, fontWeight: 300, letterSpacing: 1, fontFamily: "'Noto Serif SC', serif" } }, "全部作品 · 都能投票")),
+        el("div", { style: { fontSize: 12, color: "#999", maxWidth: 360, textAlign: "right", lineHeight: 1.7 } },
+          "审核通过并发布的作品都在这里，支持搜索、按类型与活动票池筛选；每人每期活动每天 1 票，次日重置、不囤积。")),
+      el("input", {
+        value: q, onChange: function (e) { setQ(e.target.value); },
+        placeholder: "搜索作品 / 作者 / 简介…",
+        style: { width: "100%", border: "1px solid rgba(0,0,0,0.14)", borderRadius: 999, padding: "10px 18px", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }
+      }),
+      el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 } },
+        KINDS.map(function (k) { return chip(kind, k[0], k[1], function () { setKind(k[0]); }); })),
+      el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" } },
+        el("span", { style: { fontSize: 11, color: "#999", letterSpacing: 1 } }, "票池"),
+        chip(pool, "all", "全部作品", function () { setPool("all"); }),
+        acts.map(function (a) { return chip(pool, a.id, String(a.title || a.name || a.id).slice(0, 16), function () { setPool(a.id); }); }),
+        chip(pool, "", "自由展区", function () { setPool(""); })),
+      el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 10 } },
+        el("div", { style: { display: "flex", gap: 8 } },
+          chip(sort, "new", "最新上架", function () { setSort("new"); }),
+          chip(sort, "hot", "最热票数", function () { setSort("hot"); })),
+        el("div", { style: { fontSize: 12, color: ticketUsed ? "#b08d57" : "#8a857d", background: ticketUsed ? "#f7f1e8" : "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 999, padding: "5px 14px" } },
+          "「" + poolLabel(pool) + "」· " + (ticketUsed ? "今日的票已投出，明天重置" : "今天有 1 张票可投 · 不囤积") + " · 共 " + total + " 件")),
+      msg ? el("div", { style: { marginTop: 10, fontSize: 12, color: "#c0392b", textAlign: "center" } }, msg) : null,
+      !loaded ? el("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } }, "加载中…") :
+        (works.length ? el("div", {
+          style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18, marginTop: 24 }
+        }, works.map(function (w, i) { return card(w, i); })) :
+          el("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } },
+            "没有符合条件的作品——换个关键词或筛选条件试试；也欢迎在「上传作品」页提交你的作品。")),
+      el("div", { style: { marginTop: 18, fontSize: 11, color: "#b0aaa2", textAlign: "center" } }, "展区每 60 秒自动刷新 · 点击卡片看详情并发起拉票")),
+    openWork && el("div", { onClick: function () { setOpenWork(null); },
       style: { position: "fixed", inset: 0, background: "rgba(10,10,13,0.55)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 } },
-      React.createElement("div", { onClick: (e) => e.stopPropagation(),
+      el("div", { onClick: function (e) { e.stopPropagation(); },
         style: { background: "#fff", borderRadius: 8, maxWidth: 860, width: "100%", maxHeight: "84vh", overflowY: "auto", position: "relative", padding: 40 } },
-        React.createElement("button", { onClick: () => setOpenWork(null), style: { position: "absolute", top: 14, right: 18, border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#999" } }, "×"),
+        el("button", { onClick: function () { setOpenWork(null); }, style: { position: "absolute", top: 14, right: 18, border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#999" } }, "×"),
         openWork.cover && openWork.cover.indexOf("wall:") !== 0 && openWork.cover.indexOf("data:") !== 0
-          ? React.createElement("img", { src: openWork.cover, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 6, marginBottom: 24, display: "block" } }) : null,
-        React.createElement("div", { style: { fontSize: 22, fontWeight: 600, fontFamily: "'Noto Serif SC', serif" } }, openWork.title),
-        React.createElement("div", { style: { fontSize: 12, color: "#999", margin: "10px 0 18px", letterSpacing: 1 } },
-          (openWork.author || "—") + " · " + (openWork.category || openWork.kind || "") + (openWork.wall_order ? " · 巨幕 №" + openWork.wall_order : "")),
-        React.createElement("p", { style: { fontSize: 14, lineHeight: 1.9, color: "#444", whiteSpace: "pre-wrap" } }, openWork.description || ""),
-        (openWork.detail && openWork.detail.link) ? React.createElement("a", { href: openWork.detail.link, target: "_blank", rel: "noopener", style: { display: "inline-block", margin: "6px 0 4px", fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "进入作品原网页 ↗") : null,
-        openWork.id != null ? React.createElement(Artifacts, { workId: openWork.id }) : null,
-        openWork.id != null ? React.createElement(WorkComments, { workId: openWork.id }) : null)));
+          ? el("img", { src: openWork.cover, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 6, marginBottom: 24, display: "block" } }) : null,
+        el("div", { style: { fontSize: 22, fontWeight: 600, fontFamily: "'Noto Serif SC', serif" } }, openWork.title),
+        el("div", { style: { fontSize: 12, color: "#999", margin: "10px 0 18px", letterSpacing: 1 } },
+          (openWork.author || "—") + " · " + (openWork.category || openWork.kind || "") + (openWork.wall_order ? " · 巨幕 №" + openWork.wall_order : "") + (openWork.activity_title ? " · " + openWork.activity_title : " · 自由展区")),
+        el("p", { style: { fontSize: 14, lineHeight: 1.9, color: "#444", whiteSpace: "pre-wrap" } }, openWork.description || ""),
+        (openWork.detail && openWork.detail.link) ? el("a", { href: openWork.detail.link, target: "_blank", rel: "noopener", style: { display: "inline-block", margin: "6px 0 4px", fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "进入作品原网页 ↗") : null,
+        el("div", { style: { margin: "20px 0 8px" } }, el(VoteButton, { workId: openWork.id })),
+        el("div", { style: { padding: "12px 14px", background: "#f7f7f4", borderRadius: 6, display: "flex", gap: 8, alignItems: "center" } },
+          el("span", { style: { fontSize: 12, color: "#666", whiteSpace: "nowrap" } }, "分享拉票"),
+          el("input", { readOnly: true, value: shareUrl, onClick: function (e) { try { e.target.select(); } catch (_) {} },
+            style: { flex: 1, border: "1px solid #ddd", borderRadius: 4, padding: "6px 8px", fontSize: 12, color: "#333", background: "#fff", minWidth: 0 } }),
+          el("button", { onClick: function () { copyShare(shareUrl); },
+            style: { border: "none", background: "#1a1a1f", color: "#fff", borderRadius: 4, padding: "8px 12px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" } }, "复制")),
+        openWork.id != null ? el(Artifacts, { workId: openWork.id }) : null,
+        openWork.id != null ? el(WorkComments, { workId: openWork.id }) : null)));
 };
 var HomeEntryRail = ({ onNavigate }) => {
   var el = React.createElement;
