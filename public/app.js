@@ -3224,19 +3224,19 @@ var ActivitiesSection = () => {
     .act-dots .dot::before{content:"";position:absolute;inset:-10px;}
     .act-dots .dot.on{background:#1a2b4a;}
     /* v22: split prev/next buttons on both sides + livelier interactions */
-    .act-nav-btn{position:absolute;top:50%;z-index:6;width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,0.12);background:rgba(255,255,255,0.66);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;color:#8a6470;cursor:pointer;padding:0;line-height:1;font-family:Georgia,serif;transform:translateY(-50%);opacity:.5;animation:actNavBreath 3.2s ease-in-out infinite;transition:transform .28s cubic-bezier(.34,1.56,.64,1),box-shadow .28s,opacity .28s,background .28s,border-color .28s;}
+    .act-nav-btn{position:absolute;top:50%;z-index:6;width:50px;height:50px;border-radius:50%;border:1.5px solid rgba(26,43,74,0.38);background:rgba(255,255,255,0.92);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;color:#1a2b4a;cursor:pointer;padding:0;line-height:1;font-family:Georgia,serif;transform:translateY(-50%);opacity:.85;animation:actNavBreath 3.2s ease-in-out infinite;transition:transform .28s cubic-bezier(.34,1.56,.64,1),box-shadow .28s,opacity .28s,background .28s,border-color .28s;}
     .act-nav-btn.act-nav-prev{left:16px;}
     .act-nav-btn.act-nav-next{right:16px;}
-    .act-nav-btn span{display:block;font-size:21px;transition:transform .28s cubic-bezier(.34,1.56,.64,1);}
+    .act-nav-btn span{display:block;font-size:28px;transition:transform .28s cubic-bezier(.34,1.56,.64,1);}
     .act-nav-btn::after{content:"";position:absolute;inset:-1px;border-radius:50%;border:1.5px solid rgba(138,100,112,0.55);opacity:0;transform:scale(1);pointer-events:none;}
     .act-nav-btn.pulsing::after{animation:actNavPulse .6s cubic-bezier(.22,1,.36,1) forwards;}
     .act-nav-btn:hover,.act-nav-btn:focus-visible{animation:none;opacity:1;transform:translateY(-50%) scale(1.14);background:#fff;border-color:rgba(138,100,112,0.4);box-shadow:0 8px 24px rgba(26,43,74,0.18),0 0 0 5px rgba(138,100,112,0.10);outline:none;}
     .act-nav-btn.act-nav-prev:hover span{transform:translateX(-3px);}
     .act-nav-btn.act-nav-next:hover span{transform:translateX(3px);}
     .act-nav-btn:active{transform:translateY(-50%) scale(0.92);}
-    @keyframes actNavBreath{0%,100%{opacity:.38}50%{opacity:.82}}
+    @keyframes actNavBreath{0%,100%{opacity:.72}50%{opacity:1}}
     @keyframes actNavPulse{0%{opacity:.7;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}
-    @media(max-width:1120px){.act-nav-btn{width:34px;height:34px;}.act-nav-btn.act-nav-prev{left:10px;}.act-nav-btn.act-nav-next{right:10px;}.act-nav-btn span{font-size:17px;}}
+    @media(max-width:1120px){.act-nav-btn{width:42px;height:42px;}.act-nav-btn.act-nav-prev{left:10px;}.act-nav-btn.act-nav-next{right:10px;}.act-nav-btn span{font-size:24px;}}
     /* v14: 本月特展图片占位块 */
     .act-slide.has-ph{flex-direction:row;align-items:center;gap:44px;}
     .act-slide.has-ph .act-slide-main{flex:1;min-width:0;}
