@@ -130,7 +130,7 @@ router.get('/feed', async (req, res) => {
       // 为你推荐（2026-09-13）：兴趣画像按近 7 天投票实时算（数据量小，比小时级批处理还新）；
       // 防高频重复三招：已投作品降权不隐藏、同类型穿插不连排、整点轮换种子（一小时内顺序稳定、每小时换序）
       const r = await query(
-        `SELECT w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
+        `SELECT w.user_id, w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
                 w.activity_id, w.wall_order, w.created_at,
                 COALESCE(v.cnt, 0)::int AS vote_count,
                 a.title AS activity_title
@@ -187,7 +187,7 @@ router.get('/feed', async (req, res) => {
       return res.json(ok({ works, total }));
     }
     const r = await query(
-      `SELECT w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
+      `SELECT w.user_id, w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
               w.activity_id, w.wall_order, w.created_at,
               COALESCE(v.cnt, 0)::int AS vote_count,
               a.title AS activity_title
