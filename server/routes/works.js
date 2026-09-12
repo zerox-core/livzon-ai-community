@@ -7,6 +7,14 @@ const { checkRules } = require('../validate');
 
 const router = express.Router();
 
+// 身份识别（与 vote.js 同款）：登录会话优先；显式 x-user-id 头为调试口子；都没有 = 匿名
+function voterOf(req) {
+  if (req.session && req.session.userId) return { userId: req.session.userId, key: String(req.session.userId) };
+  const legacy = (req.headers['x-user-id'] || '').toString();
+  if (legacy) return { userId: null, key: legacy.slice(0, 80) };
+  return null;
+}
+
 // 列字段（不含详情大对象，减少传输；详情单查时带出）
 const LIST_FIELDS = `id, kind, title, author, category, description, cover, source, session, activity_id, status, published, wall_order, created_at`;
 
@@ -101,7 +109,8 @@ router.get('/feed', async (req, res) => {
   const kind = String(req.query.kind || 'all');
   const hasPool = req.query.activity_id !== undefined && req.query.activity_id !== null;
   const pool = hasPool ? String(req.query.activity_id).slice(0, 60) : 'all';
-  const sort = String(req.query.sort || 'new') === 'hot' ? 'hot' : 'new';
+  const sortRaw = String(req.query.sort || 'new');
+  const sort = ['hot', 'new', 'recommend'].indexOf(sortRaw) >= 0 ? sortRaw : 'new';
   const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 120);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
@@ -117,6 +126,66 @@ router.get('/feed', async (req, res) => {
   const order = sort === 'hot' ? 'COALESCE(v.cnt, 0) DESC, w.created_at DESC' : 'w.created_at DESC';
 
   try {
+    if (sort === 'recommend') {
+      // 为你推荐（2026-09-13）：兴趣画像按近 7 天投票实时算（数据量小，比小时级批处理还新）；
+      // 防高频重复三招：已投作品降权不隐藏、同类型穿插不连排、整点轮换种子（一小时内顺序稳定、每小时换序）
+      const r = await query(
+        `SELECT w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
+                w.activity_id, w.wall_order, w.created_at,
+                COALESCE(v.cnt, 0)::int AS vote_count,
+                a.title AS activity_title
+         FROM works w
+         LEFT JOIN (SELECT work_id, count(*) cnt FROM votes GROUP BY work_id) v ON v.work_id = w.id
+         LEFT JOIN activities a ON a.id = w.activity_id
+         WHERE ${where}
+         LIMIT 500`, vals);
+      const viewer = voterOf(req);
+      const interest = {}; const votedIds = new Set();
+      if (viewer) {
+        const hv = await query(
+          `SELECT w.kind, w.id, v.created_at FROM votes v JOIN works w ON w.id = v.work_id
+           WHERE v.voter_id=$1 AND v.created_at > now() - interval '30 days'`, [viewer.key]);
+        const weekAgo = Date.now() - 7 * 864e5;
+        hv.rows.forEach((row) => {
+          votedIds.add(row.id);
+          if (new Date(row.created_at).getTime() > weekAgo) interest[row.kind] = (interest[row.kind] || 0) + 1;
+        });
+      }
+      const hourBucket = Math.floor(Date.now() / 3600000);
+      const seedKey = (viewer ? viewer.key : 'anon') + ':' + hourBucket;
+      const jitter = (id) => { // 确定性哈希 → [0,1)：同小时稳定、整点轮换
+        let h = 2166136261; const s = seedKey + ':' + id;
+        for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return ((h >>> 0) % 10000) / 10000;
+      };
+      const now = Date.now();
+      const scored = r.rows.map((w) => {
+        const ageDays = (now - new Date(w.created_at).getTime()) / 864e5;
+        let s = 3 * Math.log1p(interest[w.kind] || 0)   // 兴趣加权（冷启动=0，退化为热度+新鲜）
+              + 1.5 * Math.log1p(w.vote_count || 0)     // 热度
+              + Math.max(0, 7 - ageDays) * 0.4          // 新鲜度（7 天内递减）
+              + jitter(w.id);                           // 小时级轮换
+        if (votedIds.has(w.id)) s *= 0.25;              // 已投过=已消费，降权不隐藏
+        return { w, s };
+      });
+      scored.sort((a, b) => b.s - a.s);
+      // 同类型穿插（MMR-lite）：最多牺牲一半分数换一个不同类型，避免同 kind 连排刷屏
+      const picked = []; const rest = scored.slice();
+      let lastKind = null;
+      while (rest.length) {
+        let idx = 0;
+        if (lastKind) {
+          const maxS = rest[0].s;
+          const alt = rest.findIndex((x) => x.w.kind !== lastKind && x.s >= maxS * 0.5);
+          if (alt > 0) idx = alt;
+        }
+        picked.push(rest.splice(idx, 1)[0]);
+        lastKind = picked[picked.length - 1].w.kind;
+      }
+      const total = picked.length;
+      const works = picked.slice(offset, offset + limit).map((x) => x.w);
+      return res.json(ok({ works, total }));
+    }
     const r = await query(
       `SELECT w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
               w.activity_id, w.wall_order, w.created_at,

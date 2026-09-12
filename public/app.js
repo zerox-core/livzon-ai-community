@@ -7372,12 +7372,12 @@ var HomeGallery = ({ onWorkClick }) => {
   var [q, setQ] = st("");
   var [kind, setKind] = st("all");
   var [pool, setPool] = st("all");
-  var [sort, setSort] = st("new");
+  var [sort, setSort] = st("recommend");
   var [acts, setActs] = st([]);
   var [myToday, setMyToday] = st({});
   var [msg, setMsg] = st("");
   var flash = function (m) { setMsg(m); setTimeout(function () { setMsg(""); }, 2800); };
-  var qR = ref(""), kindR = ref("all"), poolR = ref("all"), sortR = ref("new"), firstR = ref(true);
+  var qR = ref(""), kindR = ref("all"), poolR = ref("all"), sortR = ref("recommend"), firstR = ref(true);
   qR.current = q; kindR.current = kind; poolR.current = pool; sortR.current = sort;
   var KINDS = [["all", "全部"], ["image", "图片"], ["video", "视频"], ["3d", "3D"], ["app", "小程序/产品"], ["tool", "工具/插件"], ["skill", "Skill"], ["mcp", "MCP"], ["source", "源码包"]];
   var load = function () {
@@ -7526,6 +7526,7 @@ var HomeGallery = ({ onWorkClick }) => {
         chip(pool, "", "自由展区", function () { setPool(""); })),
       el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 10 } },
         el("div", { style: { display: "flex", gap: 8 } },
+          chip(sort, "recommend", "为你推荐", function () { setSort("recommend"); }),
           chip(sort, "new", "最新上架", function () { setSort("new"); }),
           chip(sort, "hot", "最热票数", function () { setSort("hot"); })),
         el("div", { style: { fontSize: 12, color: ticketUsed ? "#b08d57" : "#8a857d", background: ticketUsed ? "#f7f1e8" : "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 999, padding: "5px 14px" } },
