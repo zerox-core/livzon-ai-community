@@ -344,7 +344,7 @@ var CurvedWall = ({ onWorkClick }) => {
       pointerEvents: "none",
       filter: "blur(1px)"
     }
-  }), hoverIndex !== null && /* @__PURE__ */ React.createElement("div", {
+  }), hoverIndex !== null && WORKS_INFO[hoverIndex % 28].id != null && /* @__PURE__ */ React.createElement("div", {
     style: {
       position: "absolute",
       bottom: -80,
@@ -410,7 +410,7 @@ var MarqueeRow = ({ row, direction, paused, hoverIndex, setHoverIndex, onWorkCli
     isHovered: hoverIndex === item.globalIdx,
     onHover: () => setHoverIndex(item.globalIdx),
     onLeave: () => setHoverIndex(null),
-    onClick: () => onWorkClick(item.globalIdx)
+    onClick: () => { if (WORKS_INFO[item.globalIdx % 28].id != null) onWorkClick(item.globalIdx); }
   })));
 };
 var WallTile = ({ img, globalIdx, isHovered, onHover, onLeave, onClick }) => {
@@ -425,7 +425,7 @@ var WallTile = ({ img, globalIdx, isHovered, onHover, onLeave, onClick }) => {
       borderRadius: 2,
       overflow: "hidden",
       position: "relative",
-      cursor: "pointer",
+      cursor: WORKS_INFO[globalIdx % 28].id != null ? "pointer" : "default",
       transition: "all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
       filter: hovered ? "brightness(1.1) saturate(1.1)" : "brightness(0.78) saturate(0.85)",
       transform: hovered ? "scale(1.08)" : "scale(1)",
@@ -454,7 +454,7 @@ var WallTile = ({ img, globalIdx, isHovered, onHover, onLeave, onClick }) => {
       display: "block",
       transition: "transform 0.6s ease"
     }
-  }), hovered && /* @__PURE__ */ React.createElement("div", {
+  }), hovered && WORKS_INFO[globalIdx % 28].id != null && /* @__PURE__ */ React.createElement("div", {
     style: {
       position: "absolute",
       inset: 0,
