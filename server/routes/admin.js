@@ -405,6 +405,73 @@ router.put('/activities/:id/signup-form', adminRequired, async (req, res) => {
   }
 });
 
+/* mockB tpl-routes —— 报名表单模板库：可新增、可更新、可删除的通用模板，套用到任意活动 */
+// GET /api/admin/signup-form-templates —— 模板清单（含完整 profile，供前端套用）
+router.get('/signup-form-templates', adminRequired, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, name, profile, updated_at FROM signup_form_templates ORDER BY updated_at DESC`, []);
+    res.json(ok({
+      templates: (rows || []).map(r => ({
+        id: r.id, name: r.name,
+        profile: (r.profile && typeof r.profile === 'object') ? r.profile : {},
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+      })),
+    }));
+  } catch (e) {
+    console.error('[admin.signup-tpl.list]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// POST /api/admin/signup-form-templates —— 新增模板 { name, profile }
+router.post('/signup-form-templates', adminRequired, async (req, res) => {
+  const body = req.body || {};
+  const name = String(body.name || '').trim().slice(0, 60) || ('模板 ' + new Date().toISOString().slice(0, 10));
+  try {
+    const profile = sanitizeProfile(body.profile || {});
+    const id = 'tpl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    await query(`INSERT INTO signup_form_templates (id, name, profile) VALUES ($1,$2,$3)`, [id, name, JSON.stringify(profile)]);
+    res.json(ok({ id }));
+  } catch (e) {
+    console.error('[admin.signup-tpl.post]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// PUT /api/admin/signup-form-templates/:id —— 更新模板 { name?, profile }
+router.put('/signup-form-templates/:id', adminRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  if (!id) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
+  const body = req.body || {};
+  const name = String(body.name || '').trim().slice(0, 60);
+  try {
+    const profile = sanitizeProfile(body.profile || {});
+    const r = await query(
+      `UPDATE signup_form_templates SET name=COALESCE(NULLIF($2,''), name), profile=$3, updated_at=now() WHERE id=$1 RETURNING id`,
+      [id, name, JSON.stringify(profile)]);
+    if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '模板不存在'));
+    res.json(ok({ id }));
+  } catch (e) {
+    console.error('[admin.signup-tpl.put]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// DELETE /api/admin/signup-form-templates/:id —— 删除模板（删除入口：随时可删，不影响已落到活动的表单）
+router.delete('/signup-form-templates/:id', adminRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  if (!id) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
+  try {
+    const r = await query(`DELETE FROM signup_form_templates WHERE id=$1 RETURNING id`, [id]);
+    if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '模板不存在'));
+    res.json(ok({ id }));
+  } catch (e) {
+    console.error('[admin.signup-tpl.del]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
 // POST /api/admin/activities/scan-reminders —— 手动跑一轮提醒扫描（测试/应急）
 // body: { aheadHours? }（默认读 REMIND_AHEAD_HOURS=24；测试时可放大窗口验证逻辑，重复预约已被去重表拦截）
 router.post('/activities/scan-reminders', adminRequired, async (req, res) => {

@@ -928,6 +928,12 @@ var AdminPage = () => {
           "<button class='adm-btn primary' onclick='window.myAdminFormLoad&&window.myAdminFormLoad((document.getElementById(\"af-select\")||{}).value)'>编辑模板</button>" +
           "<button class='adm-btn' onclick='window.myAdminFormNew&&window.myAdminFormNew()'>＋ 新建表单</button>" +
         "</div>" +
+        /* mockB P6a */ "<div class='af-tpl-card'>" +
+          "<div class='af-tpl-head'><div class='af-pick-ico'>🗂️</div>" +
+          "<div class='af-pick-b'><div class='af-pick-t'>模板库 · 可随时增删</div><div class='af-pick-d'>把编辑器里的表单存为模板，之后一键套用到任意活动；模板可新增、可删除，按每个活动不同的需求灵活组合。</div></div>" +
+          "<button class='adm-btn' onclick='window.myAdminTplSave&&window.myAdminTplSave()'>💾 存为模板</button></div>" +
+          "<div id='af-tpl-list' class='af-tpl-list'><span class='adm-loading'>加载中…</span></div>" +
+        "</div>" +
         "<div id='adm-form-editor'><div class='adm-loading'>请选择活动后加载</div></div>";
       Promise.all([
         fetch('/api/activities').then(function (r) { return r.json(); }).catch(function () { return { ok: false }; }),
@@ -947,6 +953,7 @@ var AdminPage = () => {
         }).join('');
         sel.onchange = function () { window.myAdminFormLoad(sel.value); };
       }).catch(function () {});
+      /* mockB P6b */ renderTplList();
     }
     function afPickName(id) {
       var sel = document.getElementById('af-select');
@@ -1014,6 +1021,58 @@ var AdminPage = () => {
         fields: fields
       };
     }
+    /* mockB P6c —— 报名表单模板库（可增删，套用到任意活动） */
+    function renderTplList() {
+      var box = document.getElementById('af-tpl-list'); if (!box) return;
+      fetch('/api/admin/signup-form-templates').then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.ok || !j.data) { box.innerHTML = "<div class='af-tpl-empty'>模板库加载失败，请刷新重试</div>"; return; }
+        formState.tpls = (j.data && j.data.templates) || [];
+        if (!formState.tpls.length) { box.innerHTML = "<div class='af-tpl-empty'>暂无模板——在上方编辑好表单后点「存为模板」即可复用。</div>"; return; }
+        box.innerHTML = formState.tpls.map(function (t) {
+          var nf = (t.profile && t.profile.fields) ? t.profile.fields.length : 0;
+          return "<div class='af-tpl-row'>" +
+            "<div class='af-tpl-info'><div class='af-tpl-name'>" + esc(t.name || '未命名模板') + "</div>" +
+            "<div class='af-tpl-time'>" + esc(String(t.updatedAt || '').slice(0, 16).replace('T', ' ')) + " · " + nf + " 个自定义字段</div></div>" +
+            "<div class='af-tpl-act'>" +
+              "<button class='adm-btn' onclick=\"window.myAdminTplApply&&window.myAdminTplApply('" + esc(t.id) + "')\">套用</button>" +
+              "<button class='adm-btn tpl-del' onclick=\"window.myAdminTplDel&&window.myAdminTplDel('" + esc(t.id) + "')\">删除</button>" +
+            "</div></div>";
+        }).join('');
+      }).catch(function () { box.innerHTML = "<div class='af-tpl-empty'>模板库加载失败，请刷新重试</div>"; });
+    }
+    window.myAdminTplSave = function () {
+      var profile = afCollect();
+      if (!profile) { window.alert('请先在上方选择活动并编辑好表单，再存为模板'); return; }
+      var name = window.prompt('模板名称（用于之后套用时辨认）：', '');
+      if (name === null) return;
+      name = String(name).trim().slice(0, 60) || ('模板 ' + new Date().toISOString().slice(0, 10));
+      fetch('/api/admin/signup-form-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, profile: profile }) })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          if (j.ok) { renderTplList(); window.alert('✓ 模板已保存'); }
+          else window.alert('保存失败：' + ((j.error && j.error.message) || '未知错误'));
+        }).catch(function () { window.alert('保存失败：网络异常'); });
+    };
+    window.myAdminTplApply = function (tid) {
+      var t = (formState.tpls || []).filter(function (x) { return String(x.id) === String(tid); })[0];
+      if (!t || !t.profile) { window.alert('模板不存在，请刷新后重试'); return; }
+      var sel = document.getElementById('af-select');
+      var id = formState.activityId || (sel ? sel.value : '') || '';
+      if (!id) { window.alert('请先在上方选择要套用模板的活动'); return; }
+      formState.mode = 'new'; formState.savedAt = '';
+      renderFormEditor(JSON.parse(JSON.stringify(t.profile)));
+      var msg = document.getElementById('af-msg');
+      if (msg) { msg.textContent = '✓ 已套用模板「' + (t.name || '') + '」——确认内容后点「保存表单」落到当前活动'; msg.className = 'af-msg'; }
+    };
+    window.myAdminTplDel = function (tid) {
+      var t = (formState.tpls || []).filter(function (x) { return String(x.id) === String(tid); })[0];
+      if (!t) return;
+      if (!window.confirm('确定删除模板「' + (t.name || '') + '」？\n删除后不可恢复（不影响已保存到各活动的表单）。')) return;
+      fetch('/api/admin/signup-form-templates/' + encodeURIComponent(tid), { method: 'DELETE' })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          if (j.ok) renderTplList();
+          else window.alert('删除失败：' + ((j.error && j.error.message) || '未知错误'));
+        }).catch(function () { window.alert('删除失败：网络异常'); });
+    };
     window.myAdminFormLoad = function (id) { formState.activityId = id; loadFormEditor(); };
     window.myAdminFormAddField = function () {
       var list = document.getElementById('af-list'); if (!list) return;
@@ -1094,7 +1153,7 @@ var AdminPage = () => {
     if (ref.current) { ref.current.innerHTML = h; initAdmin(); }
     return function () {
       cancelled = true;
-      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminSignup", "myAdminScan", "myAdminPool", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
+      ["myAdminTab", "myAdminWork", "myAdminPub", "myAdminReg", "myAdminSignup", "myAdminScan", "myAdminPool", "myAdminWorksFilter", "myAdminRegsFilter", "myAdminRefreshWorks", "myAdminRefreshRegs", "__admToggleGrp", "myAdminFormLoad", "myAdminFormNew", "myAdminFormAddField", "myAdminFormDelField", "myAdminFormMoveField", "myAdminFormSave", "myAdminTplSave", "myAdminTplApply", "myAdminTplDel", "myAdminFmt"].forEach(function (k) { try { delete window[k]; } catch (_) { window[k] = undefined; } });
     };
   }, []);
   return React.createElement("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "140px 64px 100px", minHeight: "100vh" } },
@@ -1170,6 +1229,15 @@ var AdminPage = () => {
     .adm-scan-err{color:#c94b4b;background:rgba(255,90,90,0.1);border-radius:8px;padding:10px 14px;}
     .adm-link{color:#2568d8;text-decoration:none;} .adm-link:hover{text-decoration:underline;}
     .af-pick-card{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#fafbfc,#f4f7fb);border:1px solid rgba(0,0,0,0.07);border-radius:12px;padding:16px 18px;margin-bottom:16px;}
+    /* mockB P6d */ .af-tpl-card{background:linear-gradient(135deg,#f6f4f0,#f9f8f5);border:1px solid rgba(0,0,0,0.07);border-radius:12px;padding:14px 18px;margin-bottom:16px;}
+    .af-tpl-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+    .af-tpl-list{margin-top:12px;display:flex;flex-direction:column;gap:8px;}
+    .af-tpl-row{display:flex;gap:12px;align-items:center;justify-content:space-between;background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:10px 14px;}
+    .af-tpl-name{font-weight:600;font-size:13px;}
+    .af-tpl-time{font-size:11px;color:#8a8f98;margin-top:2px;}
+    .af-tpl-act{display:flex;gap:8px;flex:none;}
+    .af-tpl-act .adm-btn.tpl-del{color:#b3261e;border-color:rgba(179,38,30,0.35);}
+    .af-tpl-empty{font-size:12px;color:#8a8f98;padding:10px 4px;}
     .af-pick-ico{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid rgba(0,0,0,0.07);display:flex;align-items:center;justify-content:center;font-size:18px;}
     .af-pick-b{flex:1;min-width:220px;}
     .af-pick-t{font-size:14px;font-weight:600;color:#1a1a1f;} .af-pick-d{font-size:12px;color:#999;margin-top:3px;line-height:1.6;}
@@ -1787,11 +1855,10 @@ var ActivitiesSection = () => {
         var JOIN_URL = "https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=71cidf7a-eb2d-4ba2-9bcb-c1897b9693dc&qr_code=true";
         window.__BLOOM_QR = { rows: ["111111101101101101001101001100110000101111111", "100000101111000000111101110000000001001000001", "101110101010110110001011000100101101001011101", "101110100111111111100000101110011001101011101", "101110101010000001011111111011100011101011101", "100000100100010110001000101101010100001000001", "111111101010101010101010101010101010101111111", "000000000111010000011000111111100001100000000", "100111111100101101011111101011010011010010111", "000101011011010000110011011111100110101101110", "010100101101001001011000100111011010010101111", "101001001010001010100011000001111000100101100", "011100111011100100101001110010101111001111010", "011011011001100010011100001111101101101101010", "000010110111110110011011101001000101001101000", "000011010000101011111110011100000010111001111", "010110111011101010111111101100011001011000010", "100111001001000101001101000001110110110101110", "111011111011011001110100110111010100010100001", "101000010110101011001000101101010011001010100", "000011111100110001101111100011010011111111011", "110010001010101100011000101011110011100011110", "000110101111110101111010110001001011101011111", "000010001110001010111000101001101011100010101", "000111111100100011111111111010101110111110000", "100110011011010111100011001100111100100101010", "101010100011111010111000001010000001000111000", "011001011101000000111001100000100011100001100", "110010110010000101101001011001011001000011011", "000111000100010110101000010100100111001110101", "010111101010101000101110001110101000111111111", "111010011110110010000011100011010001010001110", "101000110111010010001110100010000000000000010", "110111010011110001111001101111101111001010100", "000010100100010110100001010001010110101100111", "011110010001110101101110111001101010101001101", "100110110110001111001111101010101001111110000", "000000001011011011001000101001111101100011110", "111111101111010100101010101010000101101010100", "100000101100001000101000111001000011100011111", "101110101111011100001111111000111100111110011", "101110101111100100111011100000110110011001111", "101110100000111100110110110011010101110010001", "100000100111011101110110000011000100011111111", "111111101111001100100001101011000110101000000"], fn: ["111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000000000000000011111111111", "111111111000000000000011111000000011111111111", "111111111000000000000011111000000011111111111", "111111111111111111111111111111111111111111111", "111111111000000000000011111000000000111111111", "111111111111111111111111111111111111111111111", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000011111000000000000011111000000000000011111", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "000000101000000000000000000000000000000000000", "111111101000000000000000000000000000000000000", "111111101000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000000000000000000000000000", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111", "111111111000000000000011111000000000000011111"], autoMs: 1600 };
         var SIGNUP_HREF = "#signup?activity=" + encodeURIComponent(String(focus.id || ""));
-        var BOARD_CARDS = [
-          { t: "板块 · 01", n: "AIGC 创作", m: "AI 微电影创作赛 · AI 设计沙龙 · 展映拆解", d: "文生图出分镜、图生视频出镜头、AI 配音配乐收尾——从分镜到成片的完整创作流水线都在这里。月初领主题、月末交成片，展映会上像产品发布会一样轮流播放讨论。", sp: "rose" },
-          { t: "板块 · 02", n: "Agent 应用", m: "Vibe Coding 沙龙 · 前沿模型开发者讲座", d: "用最新模型现场生成有强烈氛围的交互网页、小游戏或视觉生成器；也邀请开源模型核心贡献者闭门分享，小场制、问到你懂为止。", sp: "lily" },
-          { t: "板块 · 03", n: "Skill 工具", m: "Skill 开发黑客松 · 实用技能午间沙龙", d: "每人独立开发一个真正能用的 skill，再交给所有人各自的 agent 实测评分：写出来只是开始，被用起来才算完成。", sp: "lotus" },
-          { t: "板块 · 04", n: "实际工作流", m: "办公自动化 · 效率工具 · 数据可视化", d: "从重复劳动里解放双手：workflow 串联、prompt 模板沉淀、报表自动生成，现场演示一条真实办公链路的自动化改造全过程。", sp: "peony" }
+        /* mockB P1 */ var BOARD_CARDS = [
+          { t: "板块 · 01", n: "网页设计", aid: "web-marathon-2026q3", sp: "rose", m: "「一页一世界」网页设计马拉松 · 9 月赛季", d: "48 小时从命题到上线：选定一个主题，用你最顺手的工具把完整网页做出来——首页视觉、动效、响应式全算分。优秀作品直接上巨幕轮播，可点击浏览源网页。" },
+          { t: "板块 · 02", n: "Skill 插件", aid: "skill-workshop-2026q4", sp: "lily", m: "实用 Skill 开发工坊 · 第 4 期", d: "把日常工作里重复的一件事交给 agent：现场拆需求、写 skill、互相实测评分——写出来只是开始，被用起来才算完成。零基础可参加。" },
+          { t: "板块 · 03", n: "AIGC 创作", aid: "aigc-season-2026a", sp: "lotus", m: "AIGC 插画设计季 · 秋季场", d: "以「自然与科技」为题进行插画与视觉设计：文生图、局部重绘、风格化都行。月末评审展 + 作品上墙，全员投票选人气奖。" }
         ];
         var slides = [{
           t: "飞行社 · 主群", n: "AI 创新大赛",
@@ -1799,7 +1866,8 @@ var ActivitiesSection = () => {
           d: "点击卡片先填写报名表；报名后扫屏幕上的二维码进主群——所有活动都在主群里通知与讨论。轻点花束可再看一次绽放过程。",
           big: true, sp: "peony", href: SIGNUP_HREF, qr: true
         }].concat(BOARD_CARDS.map(function (b) {
-          return { t: b.t, n: b.n, m: b.m, d: b.d, big: false, sp: b.sp, href: SIGNUP_HREF };
+          /* mockB P2 */ var bh = (b.aid === String(focus.id || "")) ? SIGNUP_HREF : ("panel:upcoming:" + b.aid);
+          return { t: b.t, n: b.n, m: b.m, d: b.d, big: false, sp: b.sp, href: bh };
         }));
         h += "<div class='act-carousel' id='actCarousel'>" + slides.map(function (s, si) {
           var bloomSp = s.sp || "peony";
@@ -1825,7 +1893,10 @@ var ActivitiesSection = () => {
         "vibe-coding": "氛围感优先于功能正确。用最新模型现场生成一个有强烈氛围的交互网页、小游戏或视觉生成器——代码写多写少不重要，最后它跑起来的那一刻重要。",
         "skill-hackathon": "提前一周征集方向、现场投票定题。每人独立开发一个真正能用的 skill，再交给所有人各自 agent 实测评分：写出来只是开始，被用起来才算完成。",
         "ai-design-salon": "AI 海报、AI 音乐、AI 表情包、AI 配音、创作类 skill……每人 10-15 分钟展示并拆解完整工作流——「怎么想到的」和「怎么做到的」一起讲清楚。",
-        "frontier-talk": "邀请 Qwen、DeepSeek、InternLM 等开源模型核心贡献者与年轻研究员闭门分享。8-12 人小场，问到你懂为止。"
+        "frontier-talk": "邀请 Qwen、DeepSeek、InternLM 等开源模型核心贡献者与年轻研究员闭门分享。8-12 人小场，问到你懂为止。",
+        /* mockB P4 */ "web-marathon-2026q3": "「一页一世界」网页设计马拉松：48 小时命题创作，从品牌主题、首页视觉到动效与响应式全算分。优秀作品上巨幕轮播，点击卡片可进入源网页浏览。",
+        "skill-workshop-2026q4": "实用 Skill 开发工坊：把日常工作里重复的一件事交给 agent——现场拆需求、写 skill、互相实测评分。零基础可参加，带一台能跑 agent 的电脑就行。",
+        "aigc-season-2026a": "AIGC 插画设计季（秋季场）：以「自然与科技」为题，文生图 / 局部重绘 / 风格化均可，月末评审展 + 作品上墙，全员投票选人气奖。"
       };
       var IDEA_FALLBACK = "围绕这个方向的初始设想与启发点：不设门槛、不限玩法，把你在 AI 上最想验证的一个念头带来现场，一起把它做成真的。";
       var ideaOf = function (a) { return IDEA_COPY[String((a && a.id) || "")] || IDEA_FALLBACK; };
@@ -2066,6 +2137,11 @@ var ActivitiesSection = () => {
             if (!m) return;
             var href = m.getAttribute("data-slide-href");
             if (!href) return;
+            /* mockB P3 */ if (href.slice(0, 6) === "panel:") {
+              var pp = href.slice(6).split(":");
+              if (window.actPanel && pp[0] && pp[1]) window.actPanel(pp[0], pp[1]);
+              return;
+            }
             if (href.charAt(0) === "#") {
               /* v37: 报名入口先过身份识别——未登录弹「请登录」再跳登录页 */
               fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
@@ -7833,13 +7909,14 @@ window.App = App;
             if (w.author) WORKS_INFO[slot].author = w.author;
             if (w.category) WORKS_INFO[slot].category = w.category;
             if (w.desc) WORKS_INFO[slot].desc = w.desc;
-            if (w.theme || w.source || (w.team && w.team.length) || (w.process && w.process.length) || w.link) {
+            /* mockB P5 */ var wd = (w.detail && typeof w.detail === "object") ? w.detail : null;
+            if (w.theme || w.source || (w.team && w.team.length) || (w.process && w.process.length) || w.link || wd) {
               WORKS_INFO[slot].detail = {
-                theme: w.theme || "",
-                source: w.source || "",
-                team: w.team || [],
-                process: w.process || [],
-                link: w.link || ""
+                theme: (wd && wd.theme) || w.theme || "",
+                source: (wd && wd.source) || w.source || "",
+                team: (wd && wd.team) || w.team || [],
+                process: (wd && wd.process) || w.process || [],
+                link: (wd && wd.link) || w.link || ""
               };
             }
             if (w.cover && typeof w.cover === "string" && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0) {

@@ -1,0 +1,90 @@
+{
+ "obra/superpowers": {
+  "stars": 286439,
+  "desc": "An agentic skills framework & software development methodology that works.",
+  "lang": "Shell",
+  "topics": [
+   "ai",
+   "brainstorming",
+   "coding",
+   "obra",
+   "sdlc"
+  ],
+  "url": "https://github.com/obra/superpowers"
+ },
+ "anthropics/skills": {
+  "stars": 176210,
+  "desc": "Public repository for Agent Skills",
+  "lang": "Python",
+  "topics": [
+   "agent-skills"
+  ],
+  "url": "https://github.com/anthropics/skills"
+ },
+ "browser-use/browser-use": {
+  "stars": 114570,
+  "desc": "Agents that use the browser.",
+  "lang": "Python",
+  "topics": [
+   "ai-agents",
+   "ai-tools",
+   "browser-automation",
+   "browser-use",
+   "llm"
+  ],
+  "url": "https://github.com/browser-use/browser-use"
+ },
+ "modelcontextprotocol/servers": {
+  "stars": 90309,
+  "desc": "Model Context Protocol Servers",
+  "lang": "TypeScript",
+  "topics": [],
+  "url": "https://github.com/modelcontextprotocol/servers"
+ },
+ "microsoft/markitdown": {
+  "stars": 183820,
+  "desc": "Python tool for converting files and office documents to Markdown.",
+  "lang": "Python",
+  "topics": [
+   "autogen",
+   "autogen-extension",
+   "langchain",
+   "markdown",
+   "microsoft-office"
+  ],
+  "url": "https://github.com/microsoft/markitdown"
+ },
+ "unclecode/crawl4ai": {
+  "stars": 83430,
+  "desc": "🚀🤖 Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper. Don't be shy, join here: https://discord.gg/jP8KfhDhyN",
+  "lang": "Python",
+  "topics": [],
+  "url": "https://github.com/unclecode/crawl4ai"
+ },
+ "lobehub/lobe-chat": {
+  "stars": 82464,
+  "desc": "🤯 LobeHub is your Chief Agent Operator, organizing your agents into 7×24 operations by hiring, scheduling, and reporting",
+  "lang": "TypeScript",
+  "topics": [
+   "agent",
+   "agent-collaboration",
+   "agent-harness",
+   "ai",
+   "cao"
+  ],
+  "url": "https://github.com/lobehub/lobehub"
+ },
+ "All-Hands-AI/OpenHands": {
+  "stars": 87844,
+  "desc": "🙌 OpenHands: AI-Driven Development",
+  "lang": "TypeScript",
+  "topics": [
+   "agent",
+   "artificial-intelligence",
+   "chatgpt",
+   "claude-ai",
+   "cli"
+  ],
+  "url": "https://github.com/OpenHands/OpenHands"
+ }
+}

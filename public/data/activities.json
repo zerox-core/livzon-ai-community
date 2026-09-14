@@ -1,10 +1,28 @@
 {
-  "updatedAt": "",
-  "intro": "",
-  "motto": "",
-  "types": [],
+  "updatedAt": "2026-09-14",
+  "intro": "丽珠 AI 社团活动总览：每月一场工坊、每季一场创作季，报名与作品展示都在站内完成。",
+  "motto": "玩出来的 AI —— 把每个灵感做成能用的东西",
+  "types": [
+    {
+      "name": "网页设计",
+      "tagline": "一页一世界",
+      "cadence": "每季一期",
+      "format": "48 小时线上马拉松"
+    },
+    {
+      "name": "Skill 插件",
+      "tagline": "把重复交给 agent",
+      "cadence": "每月一期",
+      "format": "工坊 + 互测评分"
+    },
+    {
+      "name": "AIGC 创作",
+      "tagline": "自然与科技",
+      "cadence": "每季一期",
+      "format": "命题创作 + 评审展"
+    }
+  ],
   "current": [],
   "upcoming": [],
-  "past": [],
-  "_startAtNote": "upcoming[].start_at 为提醒用 ISO 时间(+08:00)；当前为月中/月末占位值，排期确认后改为真实时间，改完跑 node server/sql/import_activities.js 刷新"
+  "past": []
 }
