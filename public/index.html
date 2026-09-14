@@ -66,12 +66,26 @@
   a { color: inherit; text-decoration: none; }
 
 </style>
+<script>
+/* 返回作品列表：直接落回进入位置（新加载尽早滚动；bfcache 由浏览器原位恢复）；index.html 全局开了平滑滚动，临时关掉避免动画穿过整个列表 */
+try { (function () {
+  var v = String(sessionStorage.getItem("pingceBackY") || "");
+  var i = v.lastIndexOf("|");
+  var y = Number(i > 0 ? v.slice(0, i) : v) || 0;
+  var ts = Number(i > 0 ? v.slice(i + 1) : 0) || 0;
+  window.addEventListener("pageshow", function (e) { if (e.persisted) { try { sessionStorage.removeItem("pingceBackY"); } catch (_) {} } });
+  if (!(y > 0 && Date.now() - ts < 600000)) return;
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  try { document.documentElement.style.scrollBehavior = "auto"; } catch (_) {}
+  var n = 0;
+  var t = setInterval(function () { window.scrollTo(0, y); if (++n >= 30) clearInterval(t); }, 50);
+})(); } catch (_) {}</script>
 </head>
 <body>
 <div id="app-loader"><div class="loader-dot"></div>LOADING…</div>
 <div class="film-grain"></div>
 <div id="root"></div>
 
-<script src="app.js?v=20260914r3"></script>
+<script src="app.js?v=20260914r8"></script>
 </body>
 </html>

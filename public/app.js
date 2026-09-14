@@ -874,6 +874,11 @@ var AdminPage = () => {
           "<div class='af-main'>" +
             "<div class='af-card'>" +
               "<div class='af-card-h'><span class='af-card-t'>① 基础设置</span></div>" +
+              "<div style='margin:0 0 12px;padding:10px 12px;background:#f8f8f6;border:1px solid #e3e3dc;border-radius:8px'>" +
+                "<div style='font-size:12px;color:#5f6368;margin:0 0 6px'>活动类型（决定报名材料走向）</div>" +
+                "<label style='display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#333;margin:0 0 6px;cursor:pointer'><input type='radio' name='af-flow' value='instant' style='margin-top:3px'" + (p.flowType !== 'competition' ? ' checked' : '') + "><span><b>一次性活动</b>：报名时一次性交齐材料，审批通过后自动进入作品大厅（可直接下载）</span></label>" +
+                "<label style='display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#333;cursor:pointer'><input type='radio' name='af-flow' value='competition' style='margin-top:3px'" + (p.flowType === 'competition' ? ' checked' : '') + "><span><b>比赛制</b>：报名阶段不交作品，报名通过后活动期间上传参赛作品（先审核，后投票）</span></label>" +
+              "</div>" +
               "<div class='af-sw-row'>" +
                 "<label class='af-sw'><input type='checkbox' id='af-contact'" + (p.contact ? ' checked' : '') + "><span class='af-sw-ui'></span><span class='af-sw-lb'>需要备用联系方式</span></label>" +
                 "<label class='af-sw'><input type='checkbox' id='af-upload'" + (p.needUpload ? ' checked' : '') + "><span class='af-sw-ui'></span><span class='af-sw-lb'>需要作品文件上传</span></label>" +
@@ -907,6 +912,11 @@ var AdminPage = () => {
         el.addEventListener('change', afPreview);
       }
       afPreview();
+      // 比赛制选中时自动取消「需要作品文件上传」（报名阶段不收文件）
+      var afComp = el.querySelector("input[name='af-flow'][value='competition']");
+      if (afComp) afComp.addEventListener('change', function () {
+        if (afComp.checked) { var u = document.getElementById('af-upload'); if (u) u.checked = false; afPreview(); }
+      });
     }
     function wrapFormEditor() {
       var el = document.getElementById('adm-form'); if (!el) return;
@@ -1035,7 +1045,8 @@ var AdminPage = () => {
       // P0-1 根修：字段名（label）为空不允许保存——杜绝 field_a/b/c 直出报名表的脏数据再产生
       var bad = (profile.fields || []).filter(function (f) { return !String(f.label || '').trim(); });
       if (bad.length) { msg.textContent = '保存失败：有 ' + bad.length + ' 个字段未填「字段名」，请补齐或删除该行后再保存'; msg.className = 'af-msg err'; return; }
-      fetch('/api/admin/activities/' + encodeURIComponent(id) + '/signup-form', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: profile }) })
+      var flowType = (document.querySelector("input[name='af-flow']:checked") || {}).value || 'instant';
+      fetch('/api/admin/activities/' + encodeURIComponent(id) + '/signup-form', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: profile, flowType: flowType }) })
         .then(function (r) { return r.json(); }).then(function (j) {
           msg.className = 'af-msg' + (j.ok ? '' : ' err');
           msg.textContent = j.ok ? '✓ 已保存（站点自动生效）' : ('保存失败：' + ((j.error && j.error.message) || '未知错误'));
@@ -1328,11 +1339,14 @@ var SignupPage = () => {
       fetchJsonTO("/api/activities/" + encodeURIComponent(activityId) + "/signup-form"),
       fetchJsonTO("/api/auth/me"),
       fetchJsonTO("/api/my/profile"),
-      fetchJsonTO("/api/assets?mine=1&limit=100")
+      fetchJsonTO("/api/assets?mine=1&limit=100"),
+      fetchJsonTO("/api/activities/" + encodeURIComponent(activityId) + "/my-submission")
     ]).then(function (rs) {
       if (cancelled || !ref.current) return;
-      var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3], ass = rs[4];
+      var act = rs[0], pf = rs[1], me = rs[2], prof = rs[3], ass = rs[4], ms = rs[5];
       var profile = (pf.ok && pf.data) || {};
+      var isComp = String(profile.flowType || "instant") === "competition"; // 比赛制活动
+      var mySub = (ms && ms.ok && ms.data) || null; // {signupStatus, work} —— 比赛制投稿入口状态
       if (!activityId || !act.ok) { ref.current.innerHTML = "<div class='my-empty'>活动加载失败或已下线，请刷新重试；若持续出现请检查网络后重新进入</div>"; return; }
       var a = act.data;
       var isAuth = me && me.authenticated;
@@ -1363,6 +1377,52 @@ var SignupPage = () => {
         h += "<div class='sig-login'><p>请先登录 · 正在前往登录页…</p><a href='/login.html' class='sig-btn'>立即登录 →</a></div>";
         setTimeout(function () { if (!cancelled) { try { location.href = "/login.html"; } catch (e) {} } }, 1400);
       } else {
+        var compState = !isComp ? "form" : (!mySub ? "form" : mySub.work ? "done" : mySub.signupStatus === "approved" ? "submit" : mySub.signupStatus === "pending" ? "pending" : mySub.signupStatus === "rejected" ? "rejected" : "form");
+        if (compState !== "form") {
+          var COMP_KIND_OPTS = [["image","图片"],["video","视频"],["3d","3D"],["tool","工具"],["app","应用"],["skill","Skill"],["mcp","MCP"],["source","源码包"]];
+          var compCard = "";
+          if (compState === "pending") {
+            compCard = "<div class='sig-done'>⏳ 报名已提交，等待管理员审核</div><p style='text-align:center'>审核通过后，请回到本页上传参赛作品（先审核，后投票）。</p>";
+          } else if (compState === "rejected") {
+            compCard = "<div class='sig-done'>✕ 报名未通过</div><p style='text-align:center'>如有疑问请联系活动管理员。</p>";
+          } else if (compState === "done") {
+            var myWork = mySub.work || {};
+            compCard = "<div class='sig-done'>✓ 参赛作品已提交</div><p style='text-align:center'><b>" + esc(myWork.title || "") + "</b><br>当前状态：" + (myWork.published ? "已发布 · 作品大厅可见，可参与投票" : myWork.status === "approved" ? "审核通过" : "等待管理员审核") + "</p>";
+          } else if (compState === "submit") {
+            if (a.kind && a.kind !== "current") {
+              compCard = "<div class='sig-done'>✓ 报名已通过</div><p style='text-align:center'>比赛制活动：活动进行期间开放参赛作品上传，敬请留意通知。</p>";
+            } else {
+              compCard = "<form id='compForm' class='sig-form'>" +
+                "<div class='sig-sec'><div class='sig-sec-t'><span class='no'>1</span>参赛作品 <span class='tip'>报名已通过 · 提交后等待管理员审核，审核通过即进入作品大厅参与投票</span></div>" +
+                "<div class='sig-field'><label>作品标题 <span class='sig-req'>*</span></label><input id='comp-title' type='text' maxlength='100' placeholder='给参赛作品起个名字'></div>" +
+                "<div class='sig-field'><label>作品类型 <span class='sig-req'>*</span></label><div class='sig-radios'>" +
+                  COMP_KIND_OPTS.map(function (k) { return "<label><input type='radio' name='comp-kind' value='" + k[0] + "'> " + k[1] + "</label>"; }).join("") +
+                "</div></div>" +
+                "<div class='sig-field'><label>作品简介（选填）</label><textarea id='comp-desc' maxlength='2000' rows='3' placeholder='展示在作品大厅的作品介绍'></textarea></div>" +
+                "<div class='sig-field'><label>参赛文件 <span class='sig-req'>*</span></label>" +
+                  "<div class='sig-mode'>" +
+                  "<button type='button' id='compModeUpload' class='on'><b>⬆ 上传新文件</b><span>不限大小 · 重复文件自动检测</span></button>" +
+                  "<button type='button' id='compModeAsset'><b>▣ 从我的作品选择</b><span>选用已上传的资产</span></button>" +
+                  "</div>" +
+                  "<div id='compUpBox'><div id='compDrop' class='sig-drop'><div class='sig-drop-ic'>📤</div><div class='sig-drop-t'>点击选择文件</div><div class='sig-drop-s'>也可以直接把文件拖到这里</div></div>" +
+                  "<div id='compPick' class='sig-pick' style='display:none'><span class='sig-pick-nm' id='compPickNm'></span><button type='button' id='compPickX' class='sig-pick-x' title='移除所选文件'>✕</button></div>" +
+                  "<input id='comp-file' type='file' style='display:none'></div>" +
+                  "<div id='compAsBox' style='display:none'>" +
+                  (myAssets.length
+                    ? "<div class='sig-assets'>" + myAssets.map(function (it, i) {
+                        return "<div class='it" + (i === 0 ? " on" : "") + "' data-aid='" + esc(it.id) + "'><span class='rd'></span><span class='nm'>" + esc(it.name || it.id) + "</span><span class='mt'>" + esc(fmtSize(it.size)) + (it.kind ? " · " + esc(it.kind) : "") + "</span></div>";
+                      }).join("") + "</div>"
+                    : "<div class='sig-empty'>「我的作品」里还没有资产</div>") +
+                  "</div>" +
+                "</div>" +
+                "</div>" +
+                "<div id='comp-err' class='sig-err'></div>" +
+                "<button type='submit' id='compSubmit' class='sig-btn'>提交参赛作品</button>" +
+                "</form>";
+            }
+          }
+          h += compCard;
+        } else {
         if (draft) h += "<div class='sig-draft-bar' id='sigDraftBar'>⏳ 检测到未提交的草稿（" + esc(draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "") + "），已自动恢复<button type='button' id='sigDraftClear'>清空草稿</button></div>";
         h += "<form id='sigForm' class='sig-form'>";
         // ① 基本信息（登录态自动带出）
@@ -1376,8 +1436,10 @@ var SignupPage = () => {
         if (uemail) h += "<div class='sig-field'><label>绑定邮箱（报名凭证发送至此）</label><input type='text' value='" + esc(sigMaskEmail(uemail)) + "' readonly><div class='sig-hint'>飞书账号绑定邮箱，仅脱敏展示</div></div>";
         if (profile.contact !== false) h += "<div class='sig-field'><label>备用联系方式（选填）</label><input id='sig-contact' type='text' maxlength='100' placeholder='手机 / 邮箱'></div>";
         h += "</div>";
-        // ③ 作品文件（needUpload 时）：上传新文件 / 从我的作品选择
-        if (profile.needUpload) {
+        // ③ 作品文件（needUpload 时）：上传新文件 / 从我的作品选择（比赛制：报名阶段不交作品，改为提示）
+        if (isComp) {
+          h += "<div class='sig-rules' style='margin:0 0 14px'>🏆 <b>比赛制活动</b>：本阶段只需完成报名，无需上传作品；报名通过后，请在活动期间回到本页上传参赛作品（先审核，后投票）。</div>";
+        } else if (profile.needUpload) {
           h += secHead("作品文件", "用于评审，提交前请确认可访问");
           h += "<div class='sig-mode'>" +
             "<button type='button' id='sigModeUpload' class='on'><b>⬆ 上传新文件</b><span>源码包 / 文档 / 视频 · 不限大小</span></button>" +
@@ -1414,6 +1476,7 @@ var SignupPage = () => {
         h += "<div id='sig-err' class='sig-err'></div>";
         h += "<button type='submit' id='sigSubmit' class='sig-btn'>提交报名</button>";
         h += "</form>";
+        }
       }
       h += "</div></div>";
       ref.current.innerHTML = h;
@@ -1441,6 +1504,84 @@ var SignupPage = () => {
       var sigPickX = document.getElementById("sigPickX");
       if (sigPickX && sigFile) sigPickX.addEventListener("click", function () { sigFile.value = ""; sigShowPick(); });
       sigShowPick();
+      // —— 比赛制：参赛作品提交交互 ——
+      var compForm = document.getElementById("compForm");
+      if (compForm) {
+        var cDrop = document.getElementById("compDrop"), cFile = document.getElementById("comp-file"), cPick = document.getElementById("compPick");
+        function compShowPick() {
+          if (!cPick || !cFile) return;
+          var f0 = cFile.files && cFile.files[0];
+          if (!f0) { cPick.style.display = "none"; if (cDrop) cDrop.style.display = ""; return; }
+          if (cDrop) cDrop.style.display = "none";
+          cPick.style.display = "flex";
+          var nm = document.getElementById("compPickNm");
+          if (nm) nm.textContent = f0.name + (f0.size ? " · " + fmtSize(f0.size) : "");
+        }
+        if (cDrop && cFile) {
+          cDrop.addEventListener("click", function () { cFile.click(); });
+          cDrop.addEventListener("dragover", function (e) { e.preventDefault(); cDrop.classList.add("drag"); });
+          cDrop.addEventListener("dragleave", function () { cDrop.classList.remove("drag"); });
+          cDrop.addEventListener("drop", function (e) {
+            e.preventDefault(); cDrop.classList.remove("drag");
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { cFile.files = e.dataTransfer.files; compShowPick(); }
+          });
+        }
+        if (cFile) cFile.addEventListener("change", compShowPick);
+        var cPickX = document.getElementById("compPickX");
+        if (cPickX && cFile) cPickX.addEventListener("click", function () { cFile.value = ""; compShowPick(); });
+        compShowPick();
+        var cMode = "upload", cUpBox = document.getElementById("compUpBox"), cAsBox = document.getElementById("compAsBox");
+        var cU = document.getElementById("compModeUpload"), cA = document.getElementById("compModeAsset");
+        function cSetMode(m) {
+          cMode = m;
+          if (cU) cU.className = m === "upload" ? "on" : "";
+          if (cA) cA.className = m === "asset" ? "on" : "";
+          if (cUpBox) cUpBox.style.display = m === "upload" ? "" : "none";
+          if (cAsBox) cAsBox.style.display = m === "asset" ? "" : "none";
+        }
+        if (cU) cU.addEventListener("click", function () { cSetMode("upload"); });
+        if (cA) cA.addEventListener("click", function () { cSetMode("asset"); });
+        var cSelAssetId = (myAssets[0] && myAssets[0].id) || "";
+        if (cAsBox) Array.prototype.forEach.call(cAsBox.querySelectorAll(".it"), function (it) {
+          it.addEventListener("click", function () {
+            Array.prototype.forEach.call(cAsBox.querySelectorAll(".it"), function (x) { x.classList.remove("on"); });
+            it.classList.add("on");
+            cSelAssetId = it.getAttribute("data-aid") || "";
+          });
+        });
+        compForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var cerr = document.getElementById("comp-err"), cbtn = document.getElementById("compSubmit");
+          var cTitle = ((document.getElementById("comp-title") || {}).value || "").trim();
+          var kSel = compForm.querySelector("input[name='comp-kind']:checked");
+          var cDesc = ((document.getElementById("comp-desc") || {}).value || "").trim();
+          if (!cTitle) { cerr.textContent = "请填写作品标题"; return; }
+          if (!kSel) { cerr.textContent = "请选择作品类型"; return; }
+          function cFinish(assetId) {
+            if (cbtn) { cbtn.disabled = true; cbtn.textContent = "提交中…"; }
+            fetch("/api/activities/" + encodeURIComponent(activityId) + "/submit-work", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: cTitle, kind: kSel.value, description: cDesc, assetId: assetId || "" }) })
+              .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+              .then(function (res) {
+                if (res.s === 401) { cerr.textContent = "登录已失效，请重新登录"; return; }
+                if (!res.j.ok) throw new Error((res.j.error && res.j.error.message) || "提交失败");
+                ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-done'>✓ 参赛作品已提交</div><p style='text-align:center'>" + esc(cTitle) + "</p><p style='text-align:center;font-size:13px;color:#666'>等待管理员审核，审核通过后进入作品大厅参与投票</p><div style='text-align:center;margin-top:16px'><a class='sig-btn' href='/#activities'>返回活动大厅</a></div></div></div>";
+              })
+              .catch(function (ex) { cerr.textContent = ex.message || "网络异常"; if (cbtn) { cbtn.disabled = false; cbtn.textContent = "提交参赛作品"; } });
+          }
+          if (cMode === "asset") {
+            if (!cSelAssetId) { cerr.textContent = "请先选择一个作品，或切换为「上传新文件」"; return; }
+            cFinish(cSelAssetId);
+          } else {
+            if (!cFile || !cFile.files || !cFile.files[0]) { cerr.textContent = "请上传参赛文件，或切换到「从我的作品选择」"; return; }
+            if (cbtn) cbtn.textContent = "上传中…";
+            var fd = new FormData(); fd.append("file", cFile.files[0]);
+            fetch("/api/activities/" + encodeURIComponent(activityId) + "/signup/upload", { method: "POST", body: fd })
+              .then(function (r) { return r.json(); })
+              .then(function (j) { if (j.ok) cFinish(j.data.assetId); else { cerr.textContent = "文件上传失败：" + ((j.error && j.error.message) || "未知错误"); if (cbtn) { cbtn.disabled = false; cbtn.textContent = "提交参赛作品"; } } })
+              .catch(function () { cerr.textContent = "文件上传网络异常"; if (cbtn) { cbtn.disabled = false; cbtn.textContent = "提交参赛作品"; } });
+          }
+        });
+      }
       var form = document.getElementById("sigForm");
       // —— 作品来源模式切换（上传新文件 / 从我的作品选择）——
       var mode = "upload";
@@ -1530,7 +1671,7 @@ var SignupPage = () => {
               if (!res.j.ok) throw new Error((res.j.error && res.j.error.message) || "提交失败");
               draftClear();
               var rep = !!(res.j.data && res.j.data.repeated);
-              ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-done'>✓ " + (rep ? "您已报名过该活动" : "报名成功") + "</div><p style='text-align:center'>" + esc(a.name || "") + "</p><div style='text-align:center;margin-top:16px'><a class='sig-btn' href='/#activities'>返回活动大厅</a></div></div></div>";
+              ref.current.innerHTML = "<div class='sig-wrap'><div class='sig-card'><div class='sig-done'>✓ " + (rep ? "您已报名过该活动" : "报名成功") + "</div><p style='text-align:center'>" + esc(a.name || "") + "</p>" + (isComp ? "<p style='text-align:center;font-size:13px;color:#666'>比赛制活动：报名审核通过后，请在活动期间回到本页上传参赛作品</p>" : "") + "<div style='text-align:center;margin-top:16px'><a class='sig-btn' href='/#activities'>返回活动大厅</a></div></div></div>";
             })
             .catch(function (ex) { err.textContent = ex.message || "网络异常"; if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } });
         }
@@ -1542,7 +1683,7 @@ var SignupPage = () => {
             .then(function (j) { if (j.ok) cb(j.data); else { err.textContent = "文件上传失败：" + ((j.error && j.error.message) || "未知错误"); if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } } })
             .catch(function () { err.textContent = "文件上传网络异常"; if (btn) { btn.disabled = false; btn.textContent = "提交报名"; } });
         }
-        if (profile.needUpload) {
+        if (profile.needUpload && !isComp) {
           if (mode === "asset") {
             if (!selAssetId) { err.textContent = "请先选择一个作品，或切换为「上传新文件」"; return; }
             finish(null, selAssetId);
@@ -3737,6 +3878,7 @@ var MySection = () => {
         "<div class='my-sub'>" + esc(u.department || "未标注部门") + " · " + (u.role === "admin" ? "管理员" : "成员") + "</div>" +
         "<div class='my-xp'><div class='my-xp-bar'><div class='my-xp-fill' style='width:" + L.progress + "%'></div></div><div class='my-xp-num'>" + L.points + " XP · 距 LV." + (L.nextLevelMin ? (L.level + 1) : "MAX") + "</div></div></div>" +
         "<a class='my-ai' href='https://ai.livzon.cn/apply' target='_blank' rel='noopener'>AI 资源中心 ↗</a>" +
+        "<a class='my-logout' href='/api/auth/logout'>退出登录</a>" +
         "</div>";
       // 基础任务表
       h += "<div class='my-sec'><div class='my-sechead'><span class='t'>基础任务</span><span class='e'>BASIC TASKS · 升级指南</span></div>" +
@@ -4220,6 +4362,8 @@ var MySection = () => {
     .my-task-pts{font-family:'JetBrains Mono',monospace;font-size:11px;color:#2568d8;letter-spacing:1px;}
     .my-ai{margin-left:auto;font-size:13px;letter-spacing:1px;color:#2568d8;border:1px solid rgba(37,104,216,0.4);padding:8px 18px;border-radius:999px;text-decoration:none;transition:all .2s;}
     .my-ai:hover{background:rgba(37,104,216,0.1);}
+    .my-logout{font-size:13px;letter-spacing:1px;color:#c25e5e;border:1px solid rgba(194,94,94,0.45);padding:8px 18px;border-radius:999px;text-decoration:none;transition:all .2s;flex-shrink:0;}
+    .my-logout:hover{background:rgba(194,94,94,0.12);}
     .my-asset-actions{margin-left:auto;display:flex;gap:10px;align-items:center;}
     .gt-card{background:#fff;border-radius:14px;box-shadow:0 12px 44px rgba(15,23,42,.28);border:1px solid rgba(0,0,0,0.05);padding:18px 18px 14px;font-family:inherit;color:#1a1a1f;animation:gtIn .28s ease;}
     @keyframes gtIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
@@ -6396,6 +6540,7 @@ var VoteButton = ({ workId }) => {
   var st = React.useState, ef = React.useEffect;
   var [count, setCount] = st(0);
   var [used, setUsed] = st(false);
+  var [ended, setEnded] = st(false); // 该期活动是否已结束（来自 /api/vote/status.poolKind）
   var [mine, setMine] = st(false);
   var [busy, setBusy] = st(false);
   var [hint, setHint] = st("");
@@ -6406,10 +6551,11 @@ var VoteButton = ({ workId }) => {
       setMine(!!(j && j.authenticated && j.data && j.data.userId));
     }).catch(function () {});
     fetch("/api/vote/status?work_id=" + encodeURIComponent(workId)).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      if (j && j.ok && j.data) { setCount(j.data.count | 0); setUsed(!!j.data.ticketUsedToday); }
+      if (j && j.ok && j.data) { setCount(j.data.count | 0); setUsed(!!j.data.ticketUsedToday); setEnded(j.data.poolKind === "past"); }
     }).catch(function () {});
   }, [workId]);
   var cast = function () {
+    if (ended) { flash("该期活动已结束，投票已截止"); return; }
     if (!mine) { flash("登录后才能投票"); return; }
     if (used || busy) return;
     setBusy(true);
@@ -6426,25 +6572,25 @@ var VoteButton = ({ workId }) => {
   };
   var btnStyle = {
     width: "100%",
-    background: used ? "#fce8ea" : "#1a1a1f",
-    color: used ? "#c0392b" : "#fff",
-    border: used ? "1px solid #f0c2c8" : "none",
+    background: ended ? "#f2f2f0" : used ? "#fce8ea" : "#1a1a1f",
+    color: ended ? "#b0aaa2" : used ? "#c0392b" : "#fff",
+    border: ended ? "none" : used ? "1px solid #f0c2c8" : "none",
     padding: "14px",
     borderRadius: 4,
     fontSize: 14,
     fontWeight: 500,
-    cursor: used || busy ? "default" : "pointer",
+    cursor: ended || used || busy ? "default" : "pointer",
     letterSpacing: 1,
     marginBottom: 8,
     transition: "all 0.2s ease"
   };
   return el("div", { style: { marginBottom: 4 } },
     el("button", {
-      style: btnStyle, disabled: used || busy, onClick: cast,
+      style: btnStyle, disabled: ended || used || busy, onClick: cast,
       onMouseEnter: function (e) { if (!used && !busy) e.currentTarget.style.background = "#2d2d34"; },
       onMouseLeave: function (e) { if (!used && !busy) e.currentTarget.style.background = "#1a1a1f"; }
-    }, (used ? "♥ 已投今天的票 · " : "♡ 投一票 · ") + count + " 票"),
-    el("div", { style: { fontSize: 11, color: "#999", marginBottom: 8, textAlign: "center" } }, "每人每期活动每天 1 票 · 次日重置 · 票不囤积"),
+    }, (ended ? "该期已结束 · " : used ? "♥ 已投今天的票 · " : "♡ 投一票 · ") + count + " 票"),
+    el("div", { style: { fontSize: 11, color: "#999", marginBottom: 8, textAlign: "center" } }, ended ? "本期投票已截止 · 各期活动票数独立计算" : "每人每期活动每天 1 票 · 次日重置 · 票不囤积"),
     !mine ? el("div", { style: { fontSize: 11, color: "#999", marginBottom: 8 } },
       "登录后即可投票 · ", el("a", { href: "/login.html", style: { color: "#2568d8", textDecoration: "none" } }, "去登录")) : null,
     hint ? el("div", { style: { fontSize: 12, color: "#c0392b", marginBottom: 8, textAlign: "center" } }, hint) : null);
@@ -6608,17 +6754,10 @@ var Artifacts = ({ workId, ownerId }) => {
   var inpStyle = { width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #e0e0dc", borderRadius: 6, fontSize: 13, fontFamily: "inherit" };
   return el("div", { style: { marginTop: 56, padding: "24px 0 0", borderTop: "1px solid #eee" } },
     el("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 } },
-      el("div", { style: { fontSize: 11, color: "#aaa", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace" } }, "RESOURCES · 作品资源 (" + list.length + ")"),
-      canUpload ? el("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "none", border: "1px solid #d0d0ca", color: "#666", borderRadius: 999, padding: "4px 14px", fontSize: 12, cursor: "pointer" } }, showForm ? "收起" : "＋ 上传资源") : null),
-    showForm && canUpload ? el("form", { onSubmit: upload, style: { background: "#fafaf8", border: "1px solid #eee", borderRadius: 10, padding: 16, margin: "10px 0 4px", display: "grid", gap: 10 } },
-      el("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
-        el("select", { name: "kind", style: Object.assign({}, inpStyle, { flex: "1 1 120px" }), defaultValue: "source" }, ["source", "video", "skill", "mcp", "miniprogram", "file"].map(function (k) { return el("option", { key: k, value: k }, ART_KIND_LABEL[k] || k); })),
-        el("input", { name: "version", placeholder: "版本 v1", style: Object.assign({}, inpStyle, { flex: "0 1 120px" }) })),
-      el("input", { name: "guide", placeholder: "使用说明 / 本地调用指引（选填）", style: inpStyle }),
-      el("input", { type: "file", name: "fileInput", style: { fontSize: 13 } }),
-      hint ? el("div", { style: { fontSize: 12, color: "#c0392b" } }, hint) : null,
-      el("div", { style: { textAlign: "right" } }, el("button", { type: "submit", disabled: busy, style: { background: "#1a1a1f", color: "#fff", border: "none", borderRadius: 999, padding: "8px 22px", fontSize: 13, cursor: busy ? "default" : "pointer" } }, busy ? "上传中…" : "上传"))) : null,
-    !list.length && !showForm ? el("div", { style: { fontSize: 13, color: "#bbb", padding: "10px 0" } }, canUpload ? "暂无可下载资源——点右上「上传资源」添加。" : "该作品暂未开放可下载资源。") : null,
+      el("div", { style: { fontSize: 11, color: "#aaa", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace" } }, "RESOURCES · 作者提供的资源 (" + list.length + ")"),
+      null),
+    null,
+    !list.length && !showForm ? el("div", { style: { fontSize: 13, color: "#bbb", padding: "10px 0" } }, "作者暂未提供可下载资源。") : null,
     list.map(function (a) {
       return el("div", { key: a.id, style: rowStyle },
         el("span", { style: kindBadge }, ART_KIND_LABEL[a.kind] || a.kind),
@@ -7369,12 +7508,19 @@ var HomeGallery = ({ onWorkClick }) => {
   var backYRef = ref(0);
   // 从作品详情页返回时恢复进入前的浏览位置（open() 跳转前存 sessionStorage）
   ef(function () {
-    try { backYRef.current = Number(window.sessionStorage.getItem("pingceBackY") || 0); if (backYRef.current) window.sessionStorage.removeItem("pingceBackY"); } catch (_) {}
+    try {
+      var __bp = String(window.sessionStorage.getItem("pingceBackY") || "");
+      window.sessionStorage.removeItem("pingceBackY");
+      var __pi = __bp.lastIndexOf("|");
+      var __yv = Number(__pi > 0 ? __bp.slice(0, __pi) : __bp) || 0;
+      var __ts = Number(__pi > 0 ? __bp.slice(__pi + 1) : 0) || 0;
+      if (__yv > 0 && Date.now() - __ts < 600000) backYRef.current = __yv;
+    } catch (_) {}
   }, []);
   ef(function () {
     if (backYRef.current > 0 && loaded && works.length) {
       var y = backYRef.current; backYRef.current = 0;
-      var t1 = setTimeout(function () { try { window.scrollTo(0, y); } catch (_) {} }, 80);
+      var t1 = setTimeout(function () { try { document.documentElement.style.scrollBehavior = "auto"; window.scrollTo(0, y); } catch (_) {} }, 80);
       var t2 = setTimeout(function () { try { window.scrollTo(0, y); } catch (_) {} }, 420);
       return function () { clearTimeout(t1); clearTimeout(t2); };
     }
@@ -7383,6 +7529,7 @@ var HomeGallery = ({ onWorkClick }) => {
   var [kind, setKind] = st("all");
   var [pool, setPool] = st("all");
   var [sort, setSort] = st("recommend");
+  var [filtersOpen, setFiltersOpen] = st(false); // 筛选默认折叠：展开后显示活动/类型/排序三组
   var [acts, setActs] = st([]);
   var [myToday, setMyToday] = st({});
   var [msg, setMsg] = st("");
@@ -7442,10 +7589,11 @@ var HomeGallery = ({ onWorkClick }) => {
     for (var i = 0; i < acts.length; i++) if (acts[i].id === p) return acts[i].title || acts[i].name || p;
     return p;
   };
+  var typeLabel = function () { for (var i = 0; i < KINDS.length; i++) if (KINDS[i][0] === kind) return KINDS[i][1]; return "全部类型"; };
   var ticketUsed = Object.keys(myToday).some(function (k) { return myToday[k] === pool; });
   var open = function (w) {
     if (w.wall_order && onWorkClick) { onWorkClick(w.wall_order - 1); return; }
-    try { window.sessionStorage.setItem("pingceBackY", String(window.scrollY || 0)); } catch (_) {}
+    try { window.sessionStorage.setItem("pingceBackY", String(window.scrollY || 0) + "|" + Date.now()); } catch (_) {}
     window.location.href = "work.html?id=" + w.id;
   };
   var castVote = function (w, ev) {
@@ -7479,11 +7627,12 @@ var HomeGallery = ({ onWorkClick }) => {
   };
   var voteBtn = function (w) {
     var used = myToday[w.id] != null;
+    var ended = w.activity_kind === "past"; // 已结束活动的作品：保留票数、停止投票
     return el("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } },
       el("button", {
-        onClick: function (e) { castVote(w, e); },
-        style: { flex: 1, border: "none", background: used ? "#f2ece6" : "#1a1a1f", color: used ? "#b08d57" : "#fff", borderRadius: 4, padding: "9px 0", fontSize: 12, letterSpacing: 1, cursor: used ? "default" : "pointer", transition: "all .15s ease" }
-      }, used ? "今日已投" : "投一票"),
+        onClick: function (e) { if (ended) { if (e) { e.stopPropagation(); e.preventDefault(); } return; } castVote(w, e); },
+        style: { flex: 1, border: "none", background: ended ? "#f2f2f0" : used ? "#f2ece6" : "#1a1a1f", color: ended ? "#b0aaa2" : used ? "#b08d57" : "#fff", borderRadius: 4, padding: "9px 0", fontSize: 12, letterSpacing: 1, cursor: ended || used ? "default" : "pointer", transition: "all .15s ease" }
+      }, ended ? "该期已结束" : used ? "今日已投" : "投一票"),
       el("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "#8a857d", minWidth: 46, textAlign: "right" } }, "♥ " + ((w.vote_count | 0) || 0)));
   };
   var card = function (w, idx) {
@@ -7518,26 +7667,32 @@ var HomeGallery = ({ onWorkClick }) => {
           el("div", { style: { fontSize: 11, color: "#999", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 } }, "COMMUNITY EXHIBITION · 作品展区"),
           el("div", { style: { fontSize: 26, fontWeight: 300, letterSpacing: 1, fontFamily: "'Noto Serif SC', serif" } }, "全部作品 · 都能投票")),
         el("div", { style: { fontSize: 12, color: "#999", maxWidth: 360, textAlign: "right", lineHeight: 1.7 } },
-          "审核通过并发布的作品都在这里，支持搜索、按类型与活动票池筛选；每人每期活动每天 1 票，次日重置、不囤积。")),
+          "审核通过并发布的作品都在这里，支持搜索、按活动与类型筛选；每人每期活动每天 1 票，次日重置、不囤积。")),
       el("input", {
         value: q, onChange: function (e) { setQ(e.target.value); },
         placeholder: "搜索作品 / 作者 / 简介…",
         style: { width: "100%", border: "1px solid rgba(0,0,0,0.14)", borderRadius: 999, padding: "10px 18px", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }
       }),
-      el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 } },
-        KINDS.map(function (k) { return chip(kind, k[0], k[1], function () { setKind(k[0]); }); })),
-      el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" } },
-        el("span", { style: { fontSize: 11, color: "#999", letterSpacing: 1 } }, "票池"),
-        chip(pool, "all", "全部作品", function () { setPool("all"); }),
-        acts.map(function (a) { return chip(pool, a.id, String(a.title || a.name || a.id).slice(0, 16), function () { setPool(a.id); }); }),
-        chip(pool, "", "自由展区", function () { setPool(""); })),
-      el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 10 } },
-        el("div", { style: { display: "flex", gap: 8 } },
+      el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 12 } },
+        el("div", { style: { fontSize: 12, color: "#8a857d", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" } },
+          el("span", null, "活动：" + poolLabel(pool)),
+          el("span", null, "类型：" + typeLabel()),
+          el("span", null, "共 " + total + " 件 · " + (ticketUsed ? "今日的票已投出，明天重置" : "今天有 1 张票可投 · 不囤积"))),
+        el("button", { onClick: function () { setFiltersOpen(!filtersOpen); }, style: { background: "#fff", border: "1px solid rgba(0,0,0,0.14)", borderRadius: 999, padding: "6px 16px", fontSize: 12, color: "#555", cursor: "pointer", whiteSpace: "nowrap" } }, filtersOpen ? "收起筛选 ▴" : "展开筛选 ▾")),
+      filtersOpen ? el("div", { style: { background: "#fff", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, padding: "16px 18px", marginTop: 10 } },
+        el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+          el("span", { style: { fontSize: 11, color: "#999", letterSpacing: 1, flex: "0 0 auto" } }, "活动"),
+          chip(pool, "all", "全部作品", function () { setPool("all"); }),
+          acts.map(function (a) { return chip(pool, a.id, String(a.title || a.name || a.id).slice(0, 16), function () { setPool(a.id); }); }),
+          chip(pool, "", "自由展区", function () { setPool(""); })),
+        el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 } },
+          el("span", { style: { fontSize: 11, color: "#999", letterSpacing: 1, flex: "0 0 auto" } }, "类型"),
+          KINDS.map(function (k) { return chip(kind, k[0], k[1], function () { setKind(k[0]); }); })),
+        el("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 } },
+          el("span", { style: { fontSize: 11, color: "#999", letterSpacing: 1, flex: "0 0 auto" } }, "排序"),
           chip(sort, "recommend", "为你推荐", function () { setSort("recommend"); }),
           chip(sort, "new", "最新上架", function () { setSort("new"); }),
-          chip(sort, "hot", "最热票数", function () { setSort("hot"); })),
-        el("div", { style: { fontSize: 12, color: ticketUsed ? "#b08d57" : "#8a857d", background: ticketUsed ? "#f7f1e8" : "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 999, padding: "5px 14px" } },
-          "「" + poolLabel(pool) + "」· " + (ticketUsed ? "今日的票已投出，明天重置" : "今天有 1 张票可投 · 不囤积") + " · 共 " + total + " 件")),
+          chip(sort, "hot", "最热票数", function () { setSort("hot"); }))) : null,
       msg ? el("div", { style: { marginTop: 10, fontSize: 12, color: "#c0392b", textAlign: "center" } }, msg) : null,
       !loaded ? el("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } }, "加载中…") :
         (works.length ? el("div", {
@@ -7592,7 +7747,7 @@ var WorkPage = function () {
           el("div", { style: { marginBottom: 18 } }, "没有找到这件作品，可能已下架。"),
           el("a", { href: "index.html#home", style: { fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "← 返回作品列表")) :
         el("div", null,
-          el("a", { href: "index.html#home", style: { display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, letterSpacing: 1, color: "#1a1a1f", textDecoration: "none", padding: "0 0 26px" } }, "← 返回作品列表"),
+          el("a", { href: "index.html#home", onClick: function (e) { try { if (window.history.length > 1 && document.referrer && new URL(document.referrer).origin === window.location.origin) { e.preventDefault(); window.history.back(); } } catch (_) {} }, style: { display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, letterSpacing: 1, color: "#1a1a1f", textDecoration: "none", padding: "0 0 26px" } }, "← 返回作品列表"),
           w.cover && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0
             ? el("img", { src: w.cover, alt: "", style: { width: "100%", maxHeight: 440, objectFit: "cover", borderRadius: 8, marginBottom: 28, display: "block" } }) : null,
           el("div", { style: { fontSize: 30, fontWeight: 600, fontFamily: "'Noto Serif SC', serif", lineHeight: 1.35 } }, w.title || "未命名作品"),

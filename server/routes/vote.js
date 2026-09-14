@@ -32,6 +32,14 @@ router.post('/', async (req, res) => {
   try {
     const w = await query(`SELECT id, activity_id FROM works WHERE id=$1 AND published=true`, [casted.workId]);
     if (!w.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在或未发布'));
+
+    // 每期活动投票互相独立；已结束（kind=past）的活动不再接受新投票
+    if (pool) {
+      const ak = await query(`SELECT kind FROM activities WHERE id=$1`, [pool]);
+      if (ak.rows.length && ak.rows[0].kind === 'past') {
+        return res.status(409).json(err(ErrorCodes.CONFLICT, '该期活动已结束，投票已截止'));
+      }
+    }
     const pool = w.rows[0].activity_id || '';
 
     // 今日额度：同人同票池当天 1 票（唯一索引 uq_votes_pool_day 兜底并发）
@@ -64,11 +72,16 @@ router.get('/status', async (req, res) => {
     const w = await query(`SELECT id, activity_id FROM works WHERE id=$1`, [workId]);
     if (!w.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在'));
     const pool = w.rows[0].activity_id || '';
+    let poolKind = pool ? '' : 'free';
+    if (pool) {
+      const ak = await query(`SELECT kind FROM activities WHERE id=$1`, [pool]);
+      poolKind = (ak.rows[0] && ak.rows[0].kind) || '';
+    }
     const c = await query(`SELECT count(*)::int AS cnt FROM votes WHERE work_id=$1`, [workId]);
     const used = await query(
       `SELECT 1 FROM votes WHERE voter_id=$1 AND activity_id=$2 AND vote_date=${TODAY_SQL} LIMIT 1`,
       [key, pool]);
-    res.json(ok({ workId, count: c.rows[0].cnt, activityId: pool, ticketUsedToday: used.rows.length > 0 }));
+    res.json(ok({ workId, count: c.rows[0].cnt, activityId: pool, poolKind, ticketUsedToday: used.rows.length > 0 }));
   } catch (e) {
     console.error('[vote.status]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));

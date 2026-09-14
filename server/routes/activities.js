@@ -36,12 +36,13 @@ function readJsonMeta() {
 // DB 聚合出与 json 同构的列表；DB 不可用/空表时回落 json（全仓优雅降级风格）
 async function loadActivities() {
   try {
-    const r = await query(`SELECT kind, data FROM activities ORDER BY kind, sort`);
+    const r = await query(`SELECT kind, flow_type, data FROM activities ORDER BY kind, sort`);
     if (r.rows.length) {
       const meta = readJsonMeta();
       const groups = { current: [], upcoming: [], past: [] };
       for (const row of r.rows) {
-        if (groups[row.kind]) groups[row.kind].push(row.data);
+        // 附带 kind / flowType（instant=一次性 / competition=比赛制）供报名页与投稿入口区分流程
+        if (groups[row.kind]) groups[row.kind].push({ ...row.data, kind: row.kind, flowType: row.flow_type || 'instant' });
       }
       return { ...meta, ...groups, _source: 'db' };
     }
@@ -225,12 +226,77 @@ router.post('/:id/reserve', authRequired, async (req, res) => {
   }
 });
 
+// POST /api/activities/:id/submit-work —— 比赛制：报名通过者在活动期间上传参赛作品（先审核，后投票）
+router.post('/:id/submit-work', authRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  const rules = {
+    title: { required: true, type: 'string', max: 100 },
+    kind: { required: true, type: 'string', enum: ['image', 'video', '3d', 'tool', 'app', 'skill', 'mcp', 'source'] },
+    description: { type: 'string', max: 2000 },
+    assetId: { required: true, type: 'string', max: 64 },
+  };
+  const { valid, errors, casted } = checkRules(req.body || {}, rules);
+  if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+  try {
+    const a = await query(`SELECT id, kind, flow_type FROM activities WHERE id=$1`, [id]);
+    if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
+    if (a.rows[0].flow_type !== 'competition') {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '该活动不是比赛制，无需在此提交参赛作品'));
+    }
+    if (a.rows[0].kind !== 'current') {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '不在活动进行期间，参赛作品上传已关闭'));
+    }
+    const sg = await query(`SELECT id, status FROM activity_signups WHERE activity_id=$1 AND user_id=$2`, [id, req.session.userId]);
+    if (!sg.rows.length || sg.rows[0].status !== 'approved') {
+      return res.status(403).json(err(ErrorCodes.PERMISSION, '报名尚未通过审核，通过后才可上传参赛作品'));
+    }
+    const asset = await getAsset(casted.assetId);
+    if (!asset || asset.user_id !== req.session.userId) {
+      return res.status(400).json(err(ErrorCodes.VALIDATION, '所选文件不存在或不属于当前用户'));
+    }
+    const dup = await query(`SELECT id, title FROM works WHERE activity_id=$1 AND user_id=$2 LIMIT 1`, [id, req.session.userId]);
+    if (dup.rows.length) {
+      return res.status(409).json(err(ErrorCodes.PERMISSION, '已提交过参赛作品（每人每活动一件）'));
+    }
+    const snap = await userSnapshot(req);
+    const w = await query(
+      `INSERT INTO works (kind, title, author, category, description, cover, source, detail, status, published, created_by, user_id, activity_id)
+       VALUES ($1,$2,$3,'',$4,'','','{}','pending',false,$3,$5,$6) RETURNING id, title, status, published`,
+      [casted.kind, casted.title, String(snap.name || '').slice(0, 60), casted.description || '', req.session.userId, id]);
+    await query(
+      `INSERT INTO artifacts (work_id, kind, filename, version, size, storage_url, checksum, guide, asset_id)
+       VALUES ($1,$2,$3,'v1',$4,$5,'','',$6)`,
+      [w.rows[0].id, String(asset.kind || 'file').slice(0, 20), String(asset.name || '').slice(0, 255),
+       Number(asset.size) || 0, String(asset.storage_url || '').slice(0, 500), asset.id]);
+    res.status(201).json(ok({ work: w.rows[0], message: '参赛作品已提交，等待管理员审核' }));
+  } catch (e) {
+    console.error('[activities.submitWork]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
+// GET /api/activities/:id/my-submission —— 当前用户在该活动的报名状态与参赛作品（比赛制投稿入口用）
+router.get('/:id/my-submission', authRequired, async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 64);
+  try {
+    const sg = await query(`SELECT status FROM activity_signups WHERE activity_id=$1 AND user_id=$2`, [id, req.session.userId]);
+    const wk = await query(`SELECT id, title, status, published FROM works WHERE activity_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 1`, [id, req.session.userId]);
+    res.json(ok({ signupStatus: (sg.rows[0] && sg.rows[0].status) || '', work: wk.rows[0] || null }));
+  } catch (e) {
+    console.error('[activities.mySubmission]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
 // GET /api/activities/:id/signup-form —— 该活动报名模板（公开；无配置返回默认模板）
 router.get('/:id/signup-form', async (req, res) => {
   try {
     const id = String(req.params.id || '').slice(0, 64);
     const r = await query(`SELECT profile FROM activity_signup_forms WHERE activity_id=$1`, [id]);
-    res.json(ok(sanitizeProfile(r.rows[0] && r.rows[0].profile) || DEFAULT_PROFILE()));
+    const ft = await query(`SELECT flow_type FROM activities WHERE id=$1`, [id]);
+    const prof = sanitizeProfile(r.rows[0] && r.rows[0].profile) || DEFAULT_PROFILE();
+    prof.flowType = (ft.rows[0] && ft.rows[0].flow_type) || 'instant'; // 活动类型：instant=一次性 / competition=比赛制
+    res.json(ok(prof));
   } catch (e) {
     console.error('[activities.signup-form]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
@@ -291,11 +357,12 @@ router.post('/:id/signup', authRequired, async (req, res) => {
   const { valid, errors, casted } = checkRules(body, rules);
   if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
   try {
-    const a = await query(`SELECT id, kind, title, location, date_label FROM activities WHERE id=$1`, [id]);
+    const a = await query(`SELECT id, kind, flow_type, title, location, date_label FROM activities WHERE id=$1`, [id]);
     if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
     if (a.rows[0].kind !== 'current') {
       return res.status(400).json(err(ErrorCodes.VALIDATION, '该活动尚未开放正式报名（请预约消息通知）'));
     }
+    // 比赛制：报名阶段不收作品文件（报名通过后走 submit-work 在活动期间投稿）
     const pf = await query(`SELECT profile FROM activity_signup_forms WHERE activity_id=$1`, [id]);
     const profile = sanitizeProfile(pf.rows[0] && pf.rows[0].profile) || DEFAULT_PROFILE();
     // 校验必填自定义字段（字段不存在=用默认模板则允许任意 response，宽松）
@@ -327,7 +394,8 @@ router.post('/:id/signup', authRequired, async (req, res) => {
       assetId = a2.id;
       upload = { filename: String(a2.name || '').slice(0, 255), size: Number(a2.size) || 0, storage_url: String(a2.storage_url || a2.remote_url || '').slice(0, 500) };
     }
-    if (profile.needUpload && !upload.storage_url) {
+    const needUpload = profile.needUpload && a.rows[0].flow_type !== 'competition'; // 比赛制报名阶段不收文件
+    if (needUpload && !upload.storage_url) {
       return res.status(400).json(err(ErrorCodes.VALIDATION, '请上传作品文件'));
     }
     const response = body.response && typeof body.response === 'object' ? body.response : {};

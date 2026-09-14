@@ -59,11 +59,15 @@ router.post('/upload', authRequired, (req, res) => {
     const ext = (path.extname(orig).toLowerCase().replace(/^\./, '')) || '';
     if (!ARTIFACT_EXT.has(ext)) return res.status(400).json(err(ErrorCodes.VALIDATION, `不支持的文件类型：${ext || '未知'}`));
     try {
-      const w = await query(`SELECT id, user_id FROM works WHERE id=$1`, [casted.workId]);
+      const w = await query(`SELECT id, user_id, published FROM works WHERE id=$1`, [casted.workId]);
       if (!w.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在'));
       const isAdmin = req.session.role === 'admin';
       if (!isAdmin && w.rows[0].user_id !== req.session.userId) {
         return res.status(403).json(err(ErrorCodes.PERMISSION, '只能为你自己的作品上传资源'));
+      }
+      // 报名材料一次性交齐：作品发布后不再接受补交资源（作者与管理员一律锁定）
+      if (w.rows[0].published) {
+        return res.status(409).json(err(ErrorCodes.PERMISSION, '作品已发布，报名材料需在提交时一次性交齐，不支持事后补交资源'));
       }
       // 走资产子系统：统一落盘 public/uploads/assets/<cat>/ + 登记 assets 行
       const category = categoryForKind(casted.kind) || categoryForExt(ext);

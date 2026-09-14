@@ -321,6 +321,31 @@ async function updateAdminSignupCards(signupId, status, handledVia) {
   } catch (e) { console.error('[admin.adminCard]', e.message); }
 }
 
+// 一次性活动自动发布：报名通过的 asset → works（approved+published，挂活动票池）+ artifacts 资源行。
+// 幂等：同人同活动已有作品则跳过；仅 flow_type='instant' 生效（比赛制走 submit-work 投稿）。
+const WORK_KIND_FROM_ASSET = { video: 'video', miniprogram: 'app', skill: 'skill', mcp: 'mcp', source: 'source', image: 'image', tool: 'tool', file: 'source' };
+async function autoPublishSignupWork(signup) {
+  const a = await query(`SELECT id, flow_type FROM activities WHERE id=$1`, [signup.activity_id]);
+  if (!a.rows.length || a.rows[0].flow_type !== 'instant') return;
+  const dup = await query(`SELECT id FROM works WHERE user_id=$1 AND activity_id=$2 LIMIT 1`, [signup.user_id, signup.activity_id]);
+  if (dup.rows.length) return;
+  const { getAsset } = require('../lib/asset-store');
+  const asset = await getAsset(signup.asset_id);
+  if (!asset) return;
+  const kind = WORK_KIND_FROM_ASSET[String(asset.kind || '').toLowerCase()] || 'source';
+  const title = (String(asset.name || '').replace(/\.[^.]+$/, '').trim().slice(0, 100)) || `${signup.name} 的作品`;
+  const author = String(signup.name || '').slice(0, 60) || '佚名';
+  const w = await query(
+    `INSERT INTO works (kind, title, author, category, description, cover, source, detail, status, published, created_by, user_id, activity_id)
+     VALUES ($1,$2,$3,'','','','','{}','approved',true,$3,$4,$5) RETURNING id, title`,
+    [kind, title, author, signup.user_id, signup.activity_id]);
+  await query(
+    `INSERT INTO artifacts (work_id, kind, filename, version, size, storage_url, checksum, guide, asset_id)
+     VALUES ($1,$2,$3,'v1',$4,$5,'','',$6)`,
+    [w.rows[0].id, String(asset.kind || 'file').slice(0, 20), String(asset.name || '').slice(0, 255),
+     Number(asset.size) || 0, String(asset.storage_url || '').slice(0, 500), asset.id]);
+  console.log(`[admin.autoPublish] 报名#${signup.id} 审批通过 → 作品「${title}」(${w.rows[0].id}) 自动进入作品大厅`);
+}
 // PATCH /api/admin/activities/signups/:id —— 报名审核（通过/驳回；成功后异步通知本人 + 同步管理员卡片）
 router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
   const id = Number(req.params.id);
@@ -331,9 +356,14 @@ router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
   }
   try {
     const r = await query(
-      `UPDATE activity_signups SET status=$1, updated_at=now() WHERE id=$2 RETURNING id, activity_id, status`,
+      `UPDATE activity_signups SET status=$1, updated_at=now() WHERE id=$2
+       RETURNING id, activity_id, status, user_id, name, asset_id`,
       [status, id]);
     if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '报名记录不存在'));
+    // 一次性活动：审批通过且报名带了作品文件 → 自动建作品（approved+published）并挂资源，直接进作品大厅
+    if (status === 'approved' && r.rows[0].asset_id) {
+      autoPublishSignupWork(r.rows[0]).catch((e) => console.error('[admin.autoPublish]', e.message));
+    }
     notifySignupResult(id, status).catch((e) => console.error('[admin.signupResult]', e.message));
     updateAdminSignupCards(id, status, '网页端审批').catch((e) => console.error('[admin.adminCard]', e.message));
     res.json(ok(r.rows[0]));
@@ -346,8 +376,9 @@ router.patch('/activities/signups/:id', adminRequired, async (req, res) => {
 // GET /api/admin/activities/signup-forms —— 已创建的报名模板清单（编辑/新建入口标记用）
 router.get('/activities/signup-forms', adminRequired, async (req, res) => {
   try {
-    const rows = await query('SELECT activity_id, updated_at FROM activity_signup_forms ORDER BY updated_at DESC', []);
-    res.json(ok({ forms: (rows || []).map(r => ({ activityId: r.activity_id, updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null })) }));
+    const rows = await query(
+      `SELECT f.activity_id, f.updated_at, a.flow_type FROM activity_signup_forms f LEFT JOIN activities a ON a.id = f.activity_id ORDER BY f.updated_at DESC`, []);
+    res.json(ok({ forms: (rows || []).map(r => ({ activityId: r.activity_id, flowType: r.flow_type || 'instant', updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null })) }));
   } catch (e) {
     console.error('[admin.signup-forms.list]', e);
     res.status(500).json(err(ErrorCodes.INTERNAL));
@@ -360,10 +391,13 @@ router.put('/activities/:id/signup-form', adminRequired, async (req, res) => {
   if (!id) return res.status(400).json(err(ErrorCodes.VALIDATION, 'id 非法'));
   try {
     const profile = sanitizeProfile(req.body ? req.body.profile : {});
+    // 活动类型（instant=一次性 / competition=比赛制）存 activities.flow_type，随报名模板一起保存
+    const flowType = req.body && req.body.flowType === 'competition' ? 'competition' : 'instant';
     await query(
       `INSERT INTO activity_signup_forms (activity_id, profile, updated_at) VALUES ($1,$2,now())
        ON CONFLICT (activity_id) DO UPDATE SET profile=$2, updated_at=now()`,
       [id, JSON.stringify(profile)]);
+    await query(`UPDATE activities SET flow_type=$2 WHERE id=$1`, [id, flowType]);
     res.json(ok(profile));
   } catch (e) {
     console.error('[admin.signup-form.put]', e);

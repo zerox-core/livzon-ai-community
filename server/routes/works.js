@@ -133,7 +133,8 @@ router.get('/feed', async (req, res) => {
         `SELECT w.user_id, w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
                 w.activity_id, w.wall_order, w.created_at,
                 COALESCE(v.cnt, 0)::int AS vote_count,
-                a.title AS activity_title
+                a.title AS activity_title,
+                a.kind AS activity_kind
          FROM works w
          LEFT JOIN (SELECT work_id, count(*) cnt FROM votes GROUP BY work_id) v ON v.work_id = w.id
          LEFT JOIN activities a ON a.id = w.activity_id
@@ -190,7 +191,8 @@ router.get('/feed', async (req, res) => {
       `SELECT w.user_id, w.id, w.kind, w.title, w.author, w.category, w.description, w.cover, w.source, w.session,
               w.activity_id, w.wall_order, w.created_at,
               COALESCE(v.cnt, 0)::int AS vote_count,
-              a.title AS activity_title
+              a.title AS activity_title,
+              a.kind AS activity_kind
        FROM works w
        LEFT JOIN (SELECT work_id, count(*) cnt FROM votes GROUP BY work_id) v ON v.work_id = w.id
        LEFT JOIN activities a ON a.id = w.activity_id

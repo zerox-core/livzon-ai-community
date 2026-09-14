@@ -58,7 +58,8 @@
           用飞书账号登录
         </a>
         <div class="divider">本地开发</div>
-        <button class="dev" onclick="devLogin()">开发模拟登录（无需飞书）</button>
+        <button class="dev" onclick="devLogin('test-dev-openid')">模拟管理员登录 · 测试用户</button>
+        <button class="dev" style="margin-top:8px;" onclick="devLogin('test-member-openid')">模拟普通账号登录 · 测试用户·普通</button>
         <p class="hint">生产环境部署前，删除「开发模拟登录」入口，并将 <code>ALLOW_DEV_LOGIN</code> 关闭</p>
       </div>
 
@@ -74,8 +75,8 @@
 </div>
 
 <script>
-  function devLogin() {
-    fetch('/api/auth/dev-login?openId=test-dev-openid')
+  function devLogin(openId) {
+    fetch('/api/auth/dev-login?openId=' + encodeURIComponent(openId || 'test-dev-openid'))
       .then(function (r) { return r.json(); })
       .then(function (j) { if (j.ok) location.href = '/#my'; else alert(j.error ? j.error.message : '不可用'); })
       .catch(function () { alert('请求失败'); });
