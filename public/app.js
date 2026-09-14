@@ -7366,6 +7366,19 @@ var HomeGallery = ({ onWorkClick }) => {
   var [total, setTotal] = st(0);
   var [loaded, setLoaded] = st(false);
   var [openWork, setOpenWork] = st(null); // 作品详情浮层（上墙作品走巨幕详情页）
+  var backYRef = ref(0);
+  // 从作品详情页返回时恢复进入前的浏览位置（open() 跳转前存 sessionStorage）
+  ef(function () {
+    try { backYRef.current = Number(window.sessionStorage.getItem("pingceBackY") || 0); if (backYRef.current) window.sessionStorage.removeItem("pingceBackY"); } catch (_) {}
+  }, []);
+  ef(function () {
+    if (backYRef.current > 0 && loaded && works.length) {
+      var y = backYRef.current; backYRef.current = 0;
+      var t1 = setTimeout(function () { try { window.scrollTo(0, y); } catch (_) {} }, 80);
+      var t2 = setTimeout(function () { try { window.scrollTo(0, y); } catch (_) {} }, 420);
+      return function () { clearTimeout(t1); clearTimeout(t2); };
+    }
+  }, [loaded, works.length]);
   var [q, setQ] = st("");
   var [kind, setKind] = st("all");
   var [pool, setPool] = st("all");
@@ -7405,14 +7418,11 @@ var HomeGallery = ({ onWorkClick }) => {
     }, 60000);
     return function () { clearInterval(t); };
   }, []);
-  // 深链直达：#home?work=NN 或 pingceOpenWork 事件 → 打开该作品详情浮层（分享拉票链接落地页）
+  // 深链兼容：#home?work=NN 或 pingceOpenWork 事件 → 跳转作品详情独立页 work.html（老分享链接仍可落地）
   ef(function () {
     var openById = function (wid) {
-      fetch("/api/works/feed?limit=120").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-        if (!(j && j.ok && j.data && j.data.works)) return;
-        var w = j.data.works.filter(function (x) { return Number(x.id) === Number(wid); })[0];
-        if (w) setOpenWork(w);
-      }).catch(function () {});
+      if (wid == null) return;
+      window.location.href = "work.html?id=" + wid;
     };
     var onEvt = function (e) { var d = (e && e.detail) || {}; if (d.workId != null) openById(d.workId); };
     window.addEventListener("pingceOpenWork", onEvt);
@@ -7420,16 +7430,6 @@ var HomeGallery = ({ onWorkClick }) => {
     if (m) openById(Number(m[1]));
     return function () { window.removeEventListener("pingceOpenWork", onEvt); };
   }, []);
-  // 详情补全：feed 行不含 detail（图文介绍/链接）与 user_id（作者判定），打开时单查一次并合入
-  ef(function () {
-    if (!openWork || openWork.detail) return;
-    var wid = openWork.id;
-    fetch("/api/works/" + encodeURIComponent(wid)).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      if (j && j.ok && j.data) {
-        setOpenWork(function (prev) { return (prev && Number(prev.id) === Number(wid)) ? Object.assign({}, prev, { detail: j.data.detail || {}, user_id: j.data.user_id }) : prev; });
-      }
-    }).catch(function () {});
-  }, [openWork && openWork.id]);
   // 筛选条件变化 → 350ms 防抖重载
   ef(function () {
     if (firstR.current) { firstR.current = false; return; }
@@ -7445,7 +7445,8 @@ var HomeGallery = ({ onWorkClick }) => {
   var ticketUsed = Object.keys(myToday).some(function (k) { return myToday[k] === pool; });
   var open = function (w) {
     if (w.wall_order && onWorkClick) { onWorkClick(w.wall_order - 1); return; }
-    setOpenWork(w);
+    try { window.sessionStorage.setItem("pingceBackY", String(window.scrollY || 0)); } catch (_) {}
+    window.location.href = "work.html?id=" + w.id;
   };
   var castVote = function (w, ev) {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
@@ -7507,7 +7508,6 @@ var HomeGallery = ({ onWorkClick }) => {
           el("span", { style: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10 } }, (w.category || w.kind || "").toUpperCase())),
         voteBtn(w)));
   };
-  var shareUrl = openWork ? (window.location.origin + "/#home?work=" + openWork.id) : "";
   return el("section", {
     id: "home-gallery", className: "page-section",
     style: { background: "#f8f8f6", color: "#1a1a1f", padding: "88px 64px 96px", borderTop: "1px solid rgba(0,0,0,0.05)" }
@@ -7546,48 +7546,87 @@ var HomeGallery = ({ onWorkClick }) => {
           el("div", { style: { padding: "48px 0", textAlign: "center", color: "#999", fontSize: 13 } },
             "没有符合条件的作品——换个关键词或筛选条件试试；也欢迎在「上传作品」页提交你的作品。")),
       el("div", { style: { marginTop: 18, fontSize: 11, color: "#b0aaa2", textAlign: "center" } }, "展区每 60 秒自动刷新 · 点击卡片看详情并发起拉票")),
-    openWork && el("div", { onClick: function () { setOpenWork(null); },
-      style: { position: "fixed", inset: 0, background: "rgba(10,10,13,0.45)", zIndex: 90 } },
-      el("style", null, "@keyframes drawerIn{from{transform:translateX(48px);opacity:.4}to{transform:translateX(0);opacity:1}}"),
-      el("div", { onClick: function (e) { e.stopPropagation(); },
-        style: { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(620px, 100%)", background: "#fff", overflowY: "auto", animation: "drawerIn .25s ease", padding: "56px 40px 60px", boxSizing: "border-box", boxShadow: "-16px 0 48px rgba(10,10,13,0.18)" } },
-        el("button", { onClick: function () { setOpenWork(null); }, style: { position: "absolute", top: 14, right: 18, border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#999", zIndex: 2 } }, "×"),
-        openWork.cover && openWork.cover.indexOf("wall:") !== 0 && openWork.cover.indexOf("data:") !== 0
-          ? el("img", { src: openWork.cover, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 6, marginBottom: 24, display: "block" } }) : null,
-        el("div", { style: { fontSize: 22, fontWeight: 600, fontFamily: "'Noto Serif SC', serif" } }, openWork.title),
-        el("div", { style: { fontSize: 12, color: "#999", margin: "10px 0 18px", letterSpacing: 1 } },
-          (openWork.author || "—") + " · " + (openWork.category || openWork.kind || "") + (openWork.wall_order ? " · 巨幕 №" + openWork.wall_order : "") + (openWork.activity_title ? " · " + openWork.activity_title : " · 自由展区")),
-        el("div", { style: { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", background: "#f7f7f4", borderRadius: 8, margin: "0 0 20px" } },
-          el("div", { style: { width: 44, height: 44, borderRadius: "50%", background: "#1a1a1f", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 500, flex: "0 0 auto" } }, String(openWork.author || "?").slice(0, 1)),
-          el("div", { style: { minWidth: 0 } },
-            el("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f" } }, openWork.author || "匿名作者"),
-            el("div", { style: { fontSize: 11, color: "#999", marginTop: 3 } },
-              "创作者 · 发布于 " + (openWork.created_at ? String(openWork.created_at).slice(0, 10) : "—") + (openWork.source ? " · " + openWork.source : "")))),
-        el("p", { style: { fontSize: 14, lineHeight: 1.9, color: "#444", whiteSpace: "pre-wrap" } }, openWork.description || ""),
-        (function () {
-          var od = openWork.detail || {};
-          var intro = String(od.intro || "").trim();
-          var gallery = (Array.isArray(od.gallery) ? od.gallery : []).filter(function (g) { return typeof g === "string" && g.trim(); }).slice(0, 6);
-          if (!intro && !gallery.length) return null;
-          return el("div", { style: { margin: "20px 0 0" } },
+    null);
+};
+/* ===== 作品详情独立页（work.html?id=NN）：作品巨幕点卡片整页跳转过来 ===== */
+var WorkPage = function () {
+  var el = React.createElement;
+  var st = React.useState, ef = React.useEffect;
+  var [w, setW] = st(null);
+  var [loaded, setLoaded] = st(false);
+  var [actTitle, setActTitle] = st("");
+  var wid = null;
+  try { var wm = /[?&]id=(\d+)/.exec(String(window.location.search || "")); if (wm) wid = Number(wm[1]); } catch (_) {}
+  var navTo = function (t) {
+    if (t === "join") { window.location.href = "login.html"; return; }
+    window.location.href = "index.html#" + t;
+  };
+  ef(function () {
+    if (wid == null) { setLoaded(true); return; }
+    fetch("/api/works/" + encodeURIComponent(wid)).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.ok && j.data) {
+        setW(j.data);
+        try { if (j.data.title) document.title = j.data.title + " · 丽珠AI社团"; } catch (_) {}
+      }
+      setLoaded(true);
+    }).catch(function () { setLoaded(true); });
+  }, []);
+  ef(function () {
+    if (!w || !w.activity_id) return;
+    fetch("/api/activities").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (!(j && j.ok && j.data)) return;
+      var all = [].concat(j.data.current || [], j.data.upcoming || []);
+      for (var i = 0; i < all.length; i++) if (all[i].id === w.activity_id) setActTitle(String(all[i].title || all[i].name || ""));
+    }).catch(function () {});
+  }, [w && w.activity_id]);
+  var shareUrl = w ? (window.location.origin + "/work.html?id=" + w.id) : "";
+  var od = (w && w.detail) || {};
+  var intro = String(od.intro || "").trim();
+  var gallery = (Array.isArray(od.gallery) ? od.gallery : []).filter(function (g) { return typeof g === "string" && g.trim(); }).slice(0, 12);
+  return el("div", null,
+    el(Nav, { onNavigate: navTo, currentPage: "home", lightMode: true }),
+    el("section", { className: "page-section", style: { background: "#f8f8f6", color: "#1a1a1f", padding: "88px 64px 96px", minHeight: "70vh" } },
+      el("div", { className: "page-container", style: { maxWidth: 880, margin: "0 auto" } },
+        !loaded ? el("div", { style: { padding: "80px 0", textAlign: "center", color: "#999", fontSize: 13 } }, "加载中…") :
+        !w ? el("div", { style: { padding: "80px 0", textAlign: "center", color: "#999", fontSize: 13 } },
+          el("div", { style: { marginBottom: 18 } }, "没有找到这件作品，可能已下架。"),
+          el("a", { href: "index.html#home", style: { fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "← 返回作品列表")) :
+        el("div", null,
+          el("a", { href: "index.html#home", style: { display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, letterSpacing: 1, color: "#1a1a1f", textDecoration: "none", padding: "0 0 26px" } }, "← 返回作品列表"),
+          w.cover && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0
+            ? el("img", { src: w.cover, alt: "", style: { width: "100%", maxHeight: 440, objectFit: "cover", borderRadius: 8, marginBottom: 28, display: "block" } }) : null,
+          el("div", { style: { fontSize: 30, fontWeight: 600, fontFamily: "'Noto Serif SC', serif", lineHeight: 1.35 } }, w.title || "未命名作品"),
+          el("div", { style: { fontSize: 13, color: "#999", margin: "14px 0 22px", letterSpacing: 1 } },
+            (w.author || "—") + " · " + (w.category || w.kind || "") + (w.wall_order ? " · 巨幕 №" + w.wall_order : "") + (actTitle ? " · " + actTitle : "")),
+          el("div", { style: { display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", background: "#fff", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, margin: "0 0 24px" } },
+            el("div", { style: { width: 44, height: 44, borderRadius: "50%", background: "#1a1a1f", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 500, flex: "0 0 auto" } }, String(w.author || "?").slice(0, 1)),
+            el("div", { style: { minWidth: 0 } },
+              el("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f" } }, w.author || "匿名作者"),
+              el("div", { style: { fontSize: 11, color: "#999", marginTop: 3 } },
+                "创作者 · 发布于 " + (w.created_at ? String(w.created_at).slice(0, 10) : "—") + (w.source ? " · " + w.source : "")))),
+          el("p", { style: { fontSize: 15, lineHeight: 2, color: "#444", whiteSpace: "pre-wrap" } }, w.description || ""),
+          (intro || gallery.length) ? el("div", { style: { margin: "24px 0 0" } },
             el("div", { style: { fontSize: 11, color: "#aaa", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 12 } }, "ABOUT · 图文介绍"),
             intro ? el("div", null, intro.split(/\n{2,}/).map(function (p, i) {
-              return el("p", { key: i, style: { fontSize: 14, lineHeight: 1.9, color: "#444", whiteSpace: "pre-wrap", margin: "0 0 12px" } }, p);
+              return el("p", { key: i, style: { fontSize: 15, lineHeight: 2, color: "#444", whiteSpace: "pre-wrap", margin: "0 0 12px" } }, p);
             })) : null,
-            gallery.length ? el("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginTop: 6 } },
-              gallery.map(function (g, i) { return el("img", { key: i, src: g, alt: "", onClick: function () { window.open(g, "_blank", "noopener"); }, style: { width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 6, cursor: "zoom-in", display: "block", background: "#eceae6" } }); })) : null);
-        })(),
-        (openWork.detail && openWork.detail.link) ? el("a", { href: openWork.detail.link, target: "_blank", rel: "noopener", style: { display: "inline-block", margin: "6px 0 4px", fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "进入作品原网页 ↗") : null,
-        el("div", { style: { margin: "20px 0 8px" } }, el(VoteButton, { workId: openWork.id })),
-        el("div", { style: { padding: "12px 14px", background: "#f7f7f4", borderRadius: 6, display: "flex", gap: 8, alignItems: "center" } },
-          el("span", { style: { fontSize: 12, color: "#666", whiteSpace: "nowrap" } }, "分享拉票"),
-          el("input", { readOnly: true, value: shareUrl, onClick: function (e) { try { e.target.select(); } catch (_) {} },
-            style: { flex: 1, border: "1px solid #ddd", borderRadius: 4, padding: "6px 8px", fontSize: 12, color: "#333", background: "#fff", minWidth: 0 } }),
-          el("button", { onClick: function () { copyShare(shareUrl); },
-            style: { border: "none", background: "#1a1a1f", color: "#fff", borderRadius: 4, padding: "8px 12px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" } }, "复制")),
-        openWork.id != null ? el(Artifacts, { workId: openWork.id, ownerId: openWork.user_id }) : null,
-        openWork.id != null ? el(WorkComments, { workId: openWork.id }) : null)));
+            gallery.length ? el("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginTop: 6 } },
+              gallery.map(function (g, i) { return el("img", { key: i, src: g, alt: "", onClick: function () { window.open(g, "_blank", "noopener"); }, style: { width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 8, cursor: "zoom-in", display: "block", background: "#eceae6" } }); })) : null) : null,
+          (od && od.link) ? el("a", { href: od.link, target: "_blank", rel: "noopener", style: { display: "inline-block", margin: "8px 0 4px", fontSize: 13, color: "#1a1a1f", borderBottom: "1px solid #1a1a1f", paddingBottom: 2 } }, "进入作品原网页 ↗") : null,
+          el("div", { style: { margin: "24px 0 10px" } }, el(VoteButton, { workId: w.id })),
+          el("div", { style: { padding: "12px 14px", background: "#fff", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 8, display: "flex", gap: 8, alignItems: "center" } },
+            el("span", { style: { fontSize: 12, color: "#666", whiteSpace: "nowrap" } }, "分享拉票"),
+            el("input", { readOnly: true, value: shareUrl, onClick: function (e) { try { e.target.select(); } catch (_) {} },
+              style: { flex: 1, border: "1px solid #ddd", borderRadius: 4, padding: "6px 8px", fontSize: 12, color: "#333", background: "#fff", minWidth: 0 } }),
+            el("button", { onClick: function () { try { if (navigator.clipboard) navigator.clipboard.writeText(shareUrl); else { var i2 = document.createElement("input"); i2.value = shareUrl; document.body.appendChild(i2); i2.select(); document.execCommand("copy"); document.body.removeChild(i2); } } catch (_) {} },
+              style: { border: "none", background: "#1a1a1f", color: "#fff", borderRadius: 4, padding: "8px 12px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" } }, "复制")),
+          w.id != null ? el(Artifacts, { workId: w.id, ownerId: w.user_id }) : null,
+          w.id != null ? el(WorkComments, { workId: w.id }) : null))),
+    el(Footer, null),
+    el("style", null, "@media (max-width: 768px){.page-section{padding:100px 20px 60px !important;}.page-container{max-width:100% !important;}}"));
 };
+window.WorkPage = WorkPage;
+
 window.App = App;
 
 /* ===== 挂载入口（预编译产物，无 Babel 依赖） ===== */
@@ -7609,8 +7648,9 @@ window.App = App;
   function doMount() {
     try {
       var root = document.getElementById('root');
-      if (!root || !window.App) { showError(); return; }
-      ReactDOM.createRoot(root).render(React.createElement(window.App));
+      var RootCmp = /work\.html/i.test(String(window.location.pathname || "")) && window.WorkPage ? window.WorkPage : window.App;
+      if (!root || !RootCmp) { showError(); return; }
+      ReactDOM.createRoot(root).render(React.createElement(RootCmp));
       var loader = document.getElementById('app-loader');
       if (loader) loader.classList.add('hidden');
     } catch (e) {
