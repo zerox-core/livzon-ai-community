@@ -235,7 +235,7 @@ const AIGC_TITLES = [
       kind: 'source', title: s.title, author: s.author, category: '网页设计',
       description: s.theme + '。' + s.note + '，源码已收录社团源码展示库，点击作品可直接在线浏览。',
       cover: '/showcase/' + s.slug + '/thumbnail.png', source: 'Art 素材仓库 · web_mock',
-      detail: { theme: s.theme, source: 'Art 素材仓库 · web_mock', team: '单人', process: '48 小时内独立完成', link: '/showcase/' + s.slug + '/' },
+      detail: { layout: 'showcase', theme: s.theme, source: 'Art 素材仓库 · web_mock', team: [{ name: s.author, role: '独立创作' }], process: [{ stage: '抽题', note: '9-26 上午直播间抽取命题盲盒' }, { stage: '开发', note: s.note + '，48 小时内独立完成' }, { stage: '上线', note: '源码收录社团源码展示库，直挂大屏轮播' }], link: '/showcase/' + s.slug + '/' },
       activity_id: 'web-marathon-2026q3', wall_order: s.order,
     });
   }
@@ -248,7 +248,7 @@ const AIGC_TITLES = [
       kind: 'skill', title: s.name + ' —— ' + s.zh, author: '社团 Skill 精选', category: 'Skill 插件',
       description: s.why + (stars ? '（GitHub ' + stars + '）' : '') + (ghDesc ? ' 官方简介：' + ghDesc : ''),
       cover: '/showcase/skills/' + s.slug + '.svg', source: 'GitHub 开源推荐',
-      detail: { theme: s.zh, source: 'GitHub 开源推荐', process: '第 1 期工坊拆解项目', link: meta.url || ('https://github.com/' + s.full) },
+      detail: { layout: 'linkcard', theme: s.zh, source: 'GitHub 开源推荐', team: [{ name: '开源社区', role: '作者' }], process: [{ stage: '推荐', note: '第 1 期工坊拆解项目' }], link: meta.url || ('https://github.com/' + s.full) },
       activity_id: 'skill-workshop-2026q4', wall_order: s.order,
     });
   }
@@ -258,7 +258,9 @@ const AIGC_TITLES = [
       kind: 'image', title: it.t, author: it.a, category: 'AIGC 插画',
       description: '「自然与科技」主题创作：' + it.t + '（' + it.s + '赛道）。AI 生成 + 手工精修。',
       cover: '/showcase/aigc/aigc-' + String(it.i).padStart(2, '0') + '.jpg', source: '素材站下载 · mock 展示',
-      detail: { theme: '自然与科技', style: it.s, tools: 'AI 生成 + 手工精修' },
+      detail: it.i === 1
+        ? { layout: 'gallery', theme: '自然与科技 · 系列作品集', style: it.s, tools: 'AI 生成 + 手工精修', gallery: [1, 2, 3, 4].map(function (n) { return '/showcase/aigc/aigc-' + String(n).padStart(2, '0') + '.jpg'; }) }
+        : { layout: 'minimal', theme: '自然与科技', style: it.s, tools: 'AI 生成 + 手工精修' },
       activity_id: 'aigc-season-2026a', wall_order: it.i * 2,
     });
   }

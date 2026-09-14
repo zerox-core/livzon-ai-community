@@ -6828,12 +6828,12 @@ var Artifacts = ({ workId, ownerId }) => {
   var dlBtn = { flex: "0 0 auto", background: "#1a1a1f", color: "#fff", border: "none", borderRadius: 999, padding: "7px 18px", fontSize: 13, cursor: "pointer" };
   var canUpload = !!(me && ((ownerId != null && Number(me.userId) === Number(ownerId)) || me.role === "admin")); // 仅作者本人或管理员可挂资源
   var inpStyle = { width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #e0e0dc", borderRadius: 6, fontSize: 13, fontFamily: "inherit" };
+  /* W5 */ if (!list.length && !showForm) return null;
   return el("div", { style: { marginTop: 56, padding: "24px 0 0", borderTop: "1px solid #eee" } },
     el("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 } },
       el("div", { style: { fontSize: 11, color: "#aaa", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace" } }, "RESOURCES · 作者提供的资源 (" + list.length + ")"),
       null),
     null,
-    !list.length && !showForm ? el("div", { style: { fontSize: 13, color: "#bbb", padding: "10px 0" } }, "作者暂未提供可下载资源。") : null,
     list.map(function (a) {
       return el("div", { key: a.id, style: rowStyle },
         el("span", { style: kindBadge }, ART_KIND_LABEL[a.kind] || a.kind),
@@ -6854,13 +6854,15 @@ var WorkDetail = ({ workIdx, onBack }) => {
   const related = [(workIdx + 3) % 28, (workIdx + 7) % 28, (workIdx + 11) % 28];
   const link = detail.link || "";
   const [linkHint, setLinkHint] = React.useState(false);
-  const team = detail.team && detail.team.length ? detail.team : [{ name: work.author, role: "主创" }];
-  const process = detail.process && detail.process.length ? detail.process : [
+  /* W1 */ const galleryImgs = (Array.isArray(detail.gallery) ? detail.gallery : []).filter(function (g) { return typeof g === "string" && g.trim(); }).slice(0, 12);
+  const layout = (typeof detail.layout === "string" && detail.layout) || (work.kind === "image" ? (galleryImgs.length > 1 ? "gallery" : "minimal") : (work.kind === "skill" ? "linkcard" : "showcase"));
+  const team = Array.isArray(detail.team) && detail.team.length ? detail.team : (typeof detail.team === "string" && detail.team ? [{ name: detail.team, role: "团队" }] : [{ name: work.author, role: "主创" }]);
+  const process = Array.isArray(detail.process) && detail.process.length ? detail.process : (typeof detail.process === "string" && detail.process ? [{ stage: "说明", note: detail.process }] : [
     { stage: "开发", note: work.desc || "作品由主创独立完成" },
     { stage: "内测", note: "社团内部试玩，收集同事反馈" },
     { stage: "发布", note: "上线社团作品墙，进入本期展示" },
     { stage: "评审", note: "评审记录待管理员补充" }
-  ];
+  ]); /* W1b */
   const source = detail.source || "社团内部征集 · 第 01 期";
   const themeText = detail.theme || work.desc || "";
   const openLink = () => {
@@ -6945,7 +6947,7 @@ var WorkDetail = ({ workIdx, onBack }) => {
       lineHeight: 1.6
     }
   }, "该作品暂未登记原网页链接，管理员可在管理后台编辑该作品补充「原网页链接」（存于 works.detail.link）。") : null;
-  const ctaStrip = el("div", { style: { width: "100%", marginBottom: 48 } },
+  /* W2 */ const ctaStrip = !link ? null : el("div", { style: { width: "100%", marginBottom: 48 } },
     el("button", { style: ctaStyle, onMouseEnter: hoverLift, onMouseLeave: hoverReset, onClick: openLink },
       link ? "进入作品原网页  ↗" : "作品原网页 · 链接待管理员补充"),
     hintLine);
@@ -6962,8 +6964,8 @@ var WorkDetail = ({ workIdx, onBack }) => {
     el("div", null, el("div", { style: { fontSize: 11, color: "#bbb", marginBottom: 6 } }, "创作者"), el("div", { style: { fontSize: 14, color: "#333" } }, work.author)),
     el("div", null, el("div", { style: { fontSize: 11, color: "#bbb", marginBottom: 6 } }, "分类"), el("div", { style: { fontSize: 14, color: "#333" } }, work.category)),
     el("div", null, el("div", { style: { fontSize: 11, color: "#bbb", marginBottom: 6 } }, "活动来源"), el("div", { style: { fontSize: 14, color: "#333" } }, source)));
-  const themeBlock = el("div", { style: { marginTop: 48 } },
-    el("div", { style: labelStyle }, "THEME · 网页主题介绍"),
+  /* W4 */ const themeBlock = el("div", { style: { marginTop: 48 } },
+    el("div", { style: labelStyle }, layout === "showcase" ? "THEME · 网页主题介绍" : "INTRO · 作品介绍"),
     el("p", { style: { fontSize: 14, color: "#555", lineHeight: 2.1 } }, themeText));
   const teamBlock = el("div", { style: { marginTop: 48 } },
     el("div", { style: labelStyle }, "TEAM · 团队成员"),
@@ -7024,8 +7026,12 @@ var WorkDetail = ({ workIdx, onBack }) => {
         el("div", { style: { paddingTop: 3 } },
           el("div", { style: { fontSize: 14, fontWeight: 500, color: "#333", marginBottom: 4 } }, p.stage, p.time ? " · " + p.time : ""),
           el("div", { style: { fontSize: 12, color: "#888", lineHeight: 1.8 } }, p.note || ""))))));
+  /* W4b */ const galleryBlock = galleryImgs.length > 1 ? el("div", { style: { marginTop: 48 } },
+    el("div", { style: labelStyle }, "GALLERY · 作品集（" + galleryImgs.length + " 张）"),
+    el("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 } },
+      galleryImgs.map(function (g, i) { return el("img", { key: i, src: g, alt: (work.title || "作品") + " · 图 " + (i + 1), onClick: function () { window.open(g, "_blank", "noopener"); }, style: { width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 6, cursor: "zoom-in", display: "block", background: "#eceae6" } }); }))) : null;
   const leftCol = el("div", null,
-    el("div", { style: labelStyle }, work.category.toUpperCase()),
+    el("div", { style: labelStyle }, String(work.category || "").toUpperCase()),
     el("h1", {
       style: {
         fontSize: 40,
@@ -7038,9 +7044,10 @@ var WorkDetail = ({ workIdx, onBack }) => {
     }, work.title),
     el("p", { style: { fontSize: 15, color: "#666", lineHeight: 2, marginBottom: 32 } }, work.desc),
     metaStrip,
-    themeBlock,
-    teamBlock,
-    processBlock);
+    (layout === "showcase" || layout === "linkcard" || (layout === "gallery" && themeText)) ? themeBlock : null,
+    layout === "gallery" ? galleryBlock : null,
+    layout === "showcase" ? teamBlock : null,
+    layout === "showcase" ? processBlock : null);
   const sideCta = el("button", {
     style: {
       width: "100%",
@@ -7074,9 +7081,9 @@ var WorkDetail = ({ workIdx, onBack }) => {
         borderRadius: 4
       }
     },
-      el("div", { style: { fontSize: 12, color: "#999", marginBottom: 14, letterSpacing: 1 } }, "作品入口 · ENTRY"),
-      sideCta,
-      sideHint,
+      /* W3a */ link ? el("div", { style: { fontSize: 12, color: "#999", marginBottom: 14, letterSpacing: 1 } }, "作品入口 · ENTRY") : null,
+      link ? sideCta : null,
+      link ? sideHint : null,
       el("button", {
         style: {
           width: "100%",
@@ -7093,10 +7100,10 @@ var WorkDetail = ({ workIdx, onBack }) => {
       }, "← 返回作品巨幕"),
       workId != null ? el(VoteButton, { workId: workId }) : null,
       workId != null ? el("div", { style: { height: 8 } }) : null,
-      el("div", { style: { fontSize: 11, color: "#aaa", lineHeight: 1.8 } },
+      /* W3b */ link ? el("div", { style: { fontSize: 11, color: "#aaa", lineHeight: 1.8 } },
         "点击「进入作品原网页」将在新窗口打开",
         el("br", null),
-        "作者发布并登记的真实网页地址。")));
+        "作者发布并登记的真实网页地址。") : null));
   const grid = el("div", {
     className: "work-detail-grid",
     style: {
@@ -7835,7 +7842,7 @@ var WorkPage = function () {
               el("div", { style: { fontSize: 14, fontWeight: 600, color: "#1a1a1f" } }, w.author || "匿名作者"),
               el("div", { style: { fontSize: 11, color: "#999", marginTop: 3 } },
                 "创作者 · 发布于 " + (w.created_at ? String(w.created_at).slice(0, 10) : "—") + (w.source ? " · " + w.source : "")))),
-          el("p", { style: { fontSize: 15, lineHeight: 2, color: "#444", whiteSpace: "pre-wrap" } }, w.description || ""),
+          el("p", { style: { fontSize: 15, lineHeight: 2, color: "#444", whiteSpace: "pre-wrap" } }, /* W6 */ (w.description || w.desc || "")),
           (intro || gallery.length) ? el("div", { style: { margin: "24px 0 0" } },
             el("div", { style: { fontSize: 11, color: "#aaa", letterSpacing: 3, fontFamily: "'JetBrains Mono', monospace", marginBottom: 12 } }, "ABOUT · 图文介绍"),
             intro ? el("div", null, intro.split(/\n{2,}/).map(function (p, i) {
