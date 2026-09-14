@@ -1,5 +1,5 @@
 // build/seed-mock.cjs —— Phase B mock 数据种子（幂等，可重复执行）
-// 写入：3 个活动 + 3 份报名表 + 4 个可删的表单模板 + 28 件巨幕作品 + 6 个源码展示站点
+// 写入：3 个活动 + 3 份报名表 + 4 个可删的表单模板 + 28 件巨幕作品（14 网页 + 8 Skill + 6 美术资源）+ 14 个源码展示站点
 // 用法：node build/seed-mock.cjs   （需 server/.env 提供 PG 连接）
 const fs = require('fs');
 const path = require('path');
@@ -66,22 +66,22 @@ const ACTS = [
   {
     id: 'aigc-season-2026a', kind: 'upcoming', flow_type: 'instant', sort: 1,
     start_at: '2026-10-24 14:00:00+08',
-    title: 'AIGC 命题创作 · 秋季赛「自然与科技」',
+    title: '美术资源设计赛 · 秋季场「为社团而设计」',
     date_label: '2026-10-24 14:00 开题 — 11-07 18:00 截稿',
     location: '线上（开题 + 点评双直播）',
-    tag: 'AIGC 创作',
+    tag: '美术资源',
     data: {
       id: 'aigc-season-2026a',
-      name: 'AIGC 命题创作 · 秋季赛「自然与科技」',
+      name: '美术资源设计赛 · 秋季场「为社团而设计」',
       dateLabel: '2026-10-24 14:00 开题 — 11-07 18:00 截稿',
       location: '线上（开题 + 点评双直播）',
-      tag: 'AIGC 创作',
-      desc: '命题两周创作期：用 AI 生成插画或概念设计，回答「当自然遇见科技」。两个赛道任选其一，双导师线上点评，获奖作品进大屏轮播并收入社团年历。',
+      tag: '美术资源',
+      desc: '命题两周创作期：为社团设计真正用得上的美术资源——吉祥物、App 图标按钮组件、系列插画，三个赛道任选。画、插画、任何美术资源都能投稿，AI 辅助不限工具，双导师线上点评，获奖作品直接投入社团产品与年历使用。',
       highlights: [
         '两周期命题创作：10-24 开题直播抽命题，11-07 截稿',
-        '插画 / 概念设计两大赛道，工具不限（即梦、SD、MJ 均可）',
+        '吉祥物 / UI 美术资产 / 插画三赛道，工具不限（即梦、SD、MJ 均可）',
         '双导师线上点评：一次创作方向校准 + 一次成稿精修',
-        '获奖作品上大屏轮播、收入社团 2027 年历',
+        '获奖作品上大屏轮播、投入社团 App 开发并收入 2027 年历',
       ],
       signup: true,
     },
@@ -114,9 +114,9 @@ const FORMS = {
   'aigc-season-2026a': {
     contact: true, needUpload: false, deadline: '2026-10-23（周五）18:00',
     team: { enabled: false, label: '组队情况', options: ['单人', '2-3 人'] },
-    rules: '<p><b>AIGC 命题创作 · 秋季赛「自然与科技」</b></p><ul><li>10-24 开题直播公布完整命题，两周创作期，11-07 18:00 截稿；</li><li>插画 / 概念设计两大赛道，每人限投一件，AI 生成占比不限但需提交关键提示词；</li><li>获奖作品将进入社团大屏轮播，并收入 2027 社团年历；</li><li>报名即视为同意作品在社团内外展示使用。</li></ul>',
+    rules: '<p><b>美术资源设计赛 · 秋季场「为社团而设计」</b></p><ul><li>10-24 开题直播公布完整命题，两周创作期，11-07 18:00 截稿；</li><li>吉祥物 / UI 美术资产 / 插画三赛道，每人限投一件（一组），AI 生成占比不限但需提交关键提示词；</li><li>获奖作品将进入社团大屏轮播、投入社团 App 开发，并收入 2027 社团年历；</li><li>报名即视为同意作品在社团内外展示与产品内使用。</li></ul>',
     fields: [
-      { key: 'track', label: '参赛赛道', type: 'radio', required: true, options: ['插画赛道', '概念设计赛道'], placeholder: '' },
+      { key: 'track', label: '参赛赛道', type: 'radio', required: true, options: ['吉祥物设计', 'UI 美术资产（图标 / 按钮 / 组件）', '插画 · 概念设计'], placeholder: '' },
       { key: 'tools', label: '常用 AI 工具', type: 'text', required: true, options: [], placeholder: '如：即梦 / Stable Diffusion / Midjourney' },
       { key: 'portfolio', label: '过往作品（选填）', type: 'textarea', required: false, options: [], placeholder: '链接或简单描述，没有也可留空' },
     ],
@@ -127,7 +127,7 @@ const FORMS = {
 const TPLS = [
   { id: 'tpl_mock_web_marathon', name: '网页设计马拉松 · 标准报名', profile: FORMS['web-marathon-2026q3'] },
   { id: 'tpl_mock_skill_wkshop', name: '工坊 / 培训 · 轻报名', profile: FORMS['skill-workshop-2026q4'] },
-  { id: 'tpl_mock_aigc_season', name: 'AIGC 命题创作 · 双赛道报名', profile: FORMS['aigc-season-2026a'] },
+  { id: 'tpl_mock_aigc_season', name: '美术资源设计赛 · 三赛道报名', profile: FORMS['aigc-season-2026a'] },
   {
     id: 'tpl_mock_light', name: '通用 · 极简报名（仅联系方式）',
     profile: {
@@ -145,34 +145,41 @@ const TPLS = [
 // 网页设计（源码来自 Art 仓库 web_mock，public/showcase/<slug>/ 由本项目静态直供）
 const WEB_SITES = [
   { slug: 'midnight-bookstore', title: '深夜书店 · 24 点不打烊', order: 1, author: '林晚舟', theme: '夜色里的旧书店：一个纯 CSS 沉浸式单页，灯光与书页都用手写渐变模拟', note: '纯手写 HTML/CSS，零依赖单文件' },
+  { slug: 'monsoon-post', title: '季风邮局', order: 3, author: '闻笛', theme: '信件乘着季风抵达：南洋港口邮局主题单页，信封与季风气流串起整个故事', note: '纯手写 HTML/CSS，轻叙事排版' },
   { slug: 'hanabi-night', title: '夏夜花火大会', order: 5, author: '陈默', theme: 'Canvas 粒子烟花 + 日式排版，滚动即进入祭典夜空', note: 'Canvas 粒子系统 + 滚动叙事' },
-  { slug: 'starfield-observatory', title: '星野天文台', order: 9, author: '苏一格', theme: 'SVG 星图与观测日志，把一晚上拍到的星星钉在页面里', note: 'SVG + CSS 动效' },
-  { slug: 'oilpaper-umbrella', title: '一把油纸伞', order: 13, author: '江野', theme: '江南烟雨题材的国风交互长页，伞面开合之间切换章节', note: '滚动驱动动画 + 国风配色' },
+  { slug: 'dunhuang-murals', title: '丝路花雨', order: 7, author: '安西洲', theme: '敦煌壁画主题的沉浸式长页，飞天与藻井纹样在滚动中徐徐展开', note: '国风配色 + 滚动叙事' },
+  { slug: 'horologium', title: '钟表齿轮博物馆', order: 9, author: '陆时衍', theme: '三百年机械计时史：从哥特塔钟到精密腕表，暗金质感的策展式单页', note: '排版驱动 + 微动效' },
+  { slug: 'oilpaper-umbrella', title: '一把油纸伞', order: 11, author: '江野', theme: '江南烟雨题材的国风交互长页，伞面开合之间切换章节', note: '滚动驱动动画 + 国风配色' },
+  { slug: 'cirque-brume', title: '雾夜马戏团', order: 13, author: '聂小满', theme: '红幕布拉开的哥特马戏之夜，节目单式导航与剧场氛围拉满', note: '字体排版 + 氛围动效' },
+  { slug: 'abyssal-codex', title: '深海生物志', order: 15, author: '蓝以宁', theme: '一页潜到海底：深海生物图鉴，越深越暗的滚动式下潜体验', note: '滚动深度叙事' },
   { slug: 'bioluminescent-bay', title: '荧光海湾', order: 17, author: '何知遥', theme: '冷光深海主题，鼠标划过之处泛起蓝眼泪', note: '鼠标跟随 + 发光粒子' },
+  { slug: 'paper-cut-realm', title: '纸上剪影', order: 19, author: '祝红绡', theme: '中国剪纸艺术展：一把剪刀一张红纸，民俗纹样的现代排版演绎', note: '民间美术 + 现代栅格' },
   { slug: 'paper-kite-museum', title: '纸鸢博物馆', order: 21, author: '顾星辞', theme: '一只只风筝是一页页展品，策展式排版的小型线上博物馆', note: '单文件静态站，语义化排版' },
+  { slug: 'chama-trail', title: '茶马古道', order: 23, author: '马千里', theme: '从云南到西藏的千年商路地图长卷，马帮铃铛声里的山河叙事', note: '地图长卷 + 留白美学' },
+  { slug: 'movable-type-studio', title: '活字工坊', order: 25, author: '常印', theme: '活字印刷互动工坊：字架、捡字、排版、拓印，一页走完千年印刷流程', note: '拟物木纹 + 交互排版' },
+  { slug: 'amber-insect-archive', title: '琥珀昆虫档案馆', order: 27, author: '柯岩', theme: '穿越亿万年时光的琥珀标本馆，每只昆虫都是一座时间胶囊', note: '暖棕色调 + 标本陈列式布局' },
 ];
 
 // Skill 插件（真实开源项目推荐；star 数以 skill-repos.json 的 GitHub 数据为准）
 const SKILLS = [
-  { full: 'obra/superpowers', slug: 'superpowers', order: 3, name: 'Superpowers', zh: '给 agent 装上一整套工作流方法论', why: '最火的 agent 技能框架：头脑风暴、SDLC、测试纪律……装上之后 agent 像换了个脑子，工坊入门环节就拆它。' },
-  { full: 'anthropics/skills', slug: 'anthropic-skills', order: 7, name: 'Anthropic Skills（官方技能库）', zh: '官方出品的 Agent Skills 合集', why: 'Anthropic 官方维护的技能仓库，看官方怎么写 Skill 结构，照着抄就对了。' },
-  { full: 'microsoft/markitdown', slug: 'markitdown', order: 11, name: 'MarkItDown', zh: '微软出品：万物转 Markdown', why: 'Word / PPT / Excel / PDF 一键转 Markdown，喂给大模型前的第一道工序，社团知识库入库全靠它。' },
-  { full: 'browser-use/browser-use', slug: 'browser-use', order: 15, name: 'browser-use', zh: '让 agent 真正会用浏览器', why: '把浏览器交给 agent 操作：填表、抓取、点按钮，写自动化脚本的同事人手一个。' },
-  { full: 'modelcontextprotocol/servers', slug: 'mcp-servers', order: 19, name: 'MCP Servers（参考服务器）', zh: 'MCP 生态的官方参考实现合集', why: 'Model Context Protocol 官方参考服务器：文件系统、搜索、数据库接入怎么写，都在这里。' },
-  { full: 'All-Hands-AI/OpenHands', slug: 'openhands', order: 23, name: 'OpenHands', zh: '开源软件工程 agent 平台', why: '前 OpenDevin：一个能改代码、跑测试、提 PR 的完整 agent 平台，适合团队内部部署体验。' },
-  { full: 'unclecode/crawl4ai', slug: 'crawl4ai', order: 25, name: 'Crawl4AI', zh: '为 LLM 而生的爬虫', why: '专为喂大模型设计的爬虫：自动转 Markdown、去噪、适配 RAG，做资料类 Skill 的黄金搭档。' },
-  { full: 'lobehub/lobe-chat', slug: 'lobechat', order: 27, name: 'LobeChat', zh: '一句话搭出团队聊天机器人', why: '插件生态丰富的开源聊天框架，把内部工具包装成机器人给全组用，低成本高回报。' },
+  { full: 'obra/superpowers', slug: 'superpowers', order: 2, name: 'Superpowers', zh: '给 agent 装上一整套工作流方法论', why: '最火的 agent 技能框架：头脑风暴、SDLC、测试纪律……装上之后 agent 像换了个脑子，工坊入门环节就拆它。' },
+  { full: 'anthropics/skills', slug: 'anthropic-skills', order: 6, name: 'Anthropic Skills（官方技能库）', zh: '官方出品的 Agent Skills 合集', why: 'Anthropic 官方维护的技能仓库，看官方怎么写 Skill 结构，照着抄就对了。' },
+  { full: 'microsoft/markitdown', slug: 'markitdown', order: 10, name: 'MarkItDown', zh: '微软出品：万物转 Markdown', why: 'Word / PPT / Excel / PDF 一键转 Markdown，喂给大模型前的第一道工序，社团知识库入库全靠它。' },
+  { full: 'browser-use/browser-use', slug: 'browser-use', order: 14, name: 'browser-use', zh: '让 agent 真正会用浏览器', why: '把浏览器交给 agent 操作：填表、抓取、点按钮，写自动化脚本的同事人手一个。' },
+  { full: 'modelcontextprotocol/servers', slug: 'mcp-servers', order: 18, name: 'MCP Servers（参考服务器）', zh: 'MCP 生态的官方参考实现合集', why: 'Model Context Protocol 官方参考服务器：文件系统、搜索、数据库接入怎么写，都在这里。' },
+  { full: 'All-Hands-AI/OpenHands', slug: 'openhands', order: 22, name: 'OpenHands', zh: '开源软件工程 agent 平台', why: '前 OpenDevin：一个能改代码、跑测试、提 PR 的完整 agent 平台，适合团队内部部署体验。' },
+  { full: 'unclecode/crawl4ai', slug: 'crawl4ai', order: 26, name: 'Crawl4AI', zh: '为 LLM 而生的爬虫', why: '专为喂大模型设计的爬虫：自动转 Markdown、去噪、适配 RAG，做资料类 Skill 的黄金搭档。' },
+  { full: 'lobehub/lobe-chat', slug: 'lobechat', order: 28, name: 'LobeChat', zh: '一句话搭出团队聊天机器人', why: '插件生态丰富的开源聊天框架，把内部工具包装成机器人给全组用，低成本高回报。' },
 ];
 
-// AIGC 插画（素材图 public/showcase/aigc/aigc-NN.jpg）
-const AIGC_TITLES = [
-  { i: 1, t: '山与雾的呼吸', a: '叶浮生', s: '国风插画' }, { i: 2, t: '细胞花园', a: '路远', s: '概念设计' },
-  { i: 3, t: '星轨之下', a: '白鹿鸣', s: '概念设计' }, { i: 4, t: '雨林电路', a: '沈云归', s: '国风插画' },
-  { i: 5, t: '月下机械鹿', a: '温叙', s: '概念设计' }, { i: 6, t: '潮汐引擎', a: '祝余', s: '概念设计' },
-  { i: 7, t: '蒲公英与天线', a: '鹤行舟', s: '国风插画' }, { i: 8, t: '珊瑚服务器', a: '阮青野', s: '概念设计' },
-  { i: 9, t: '萤火数据流', a: '许晏清', s: '国风插画' }, { i: 10, t: '雪原温室', a: '秦枝', s: '概念设计' },
-  { i: 11, t: '纸鹤航线', a: '柏舟', s: '国风插画' }, { i: 12, t: '麦田充电桩', a: '孟夏', s: '概念设计' },
-  { i: 13, t: '深空植物园', a: '洛九歌', s: '概念设计' }, { i: 14, t: '晨雾列车', a: '常晚', s: '国风插画' },
+// 美术资源（素材图 public/showcase/art/setN_image_M.jpg，每件作品一组 4 张图集）
+const ART_WORKS = [
+  { set: 1, order: 4, t: '「珠小团」社团吉祥物 · 标准形象设计稿', a: '温叙', s: '吉祥物设计', theme: '为丽珠 AI 社团设计的官方吉祥物：胶囊 + 珍珠原型的 Q 版形象，含正面 / 侧面 / 背面与三视图规范稿' },
+  { set: 2, order: 8, t: '「珠小团」表情与动作延展稿', a: '温叙', s: '吉祥物设计', theme: '吉祥物的动作表情延展：庆祝、点赞、思考、加油四连，可直接用于群表情与活动物料' },
+  { set: 3, order: 12, t: '社团 App 功能图标集 · 四风格设计稿', a: '柯岩', s: 'UI 美术资产', theme: '为社团应用设计的功能图标集：首页 / 活动 / 作品墙 / 消息等 9 枚图标，线性、面性、毛玻璃、3D 四种风格稿' },
+  { set: 4, order: 16, t: '社团 App 按钮与组件设计稿', a: '柯岩', s: 'UI 美术资产', theme: '为社团应用设计的 UI 组件规范：按钮三态、标签徽章、卡片、表单输入，后期开发直接取用' },
+  { set: 5, order: 20, t: '系列插画「自然与科技」', a: '叶浮生', s: '插画', theme: '齿轮藤蔓森林、数据河流、电路树叶、月下机器人与鹿——当自然遇见科技的四幅回答' },
+  { set: 6, order: 24, t: '系列插画「城市与人」', a: '常晚', s: '插画', theme: '雨夜霓虹、天台日出、地铁读书人、黄昏晾衣绳——城市角落里的人与光' },
 ];
 
 (async () => {
@@ -188,7 +195,8 @@ const AIGC_TITLES = [
 
   const actIds = ACTS.map(a => a.id);
   const tplIds = TPLS.map(t => t.id);
-  const siteSlugs = WEB_SITES.map(s => s.slug);
+  // starfield-observatory 已下架：一并清掉它的展示站点登记
+  const siteSlugs = WEB_SITES.map(s => s.slug).concat(['starfield-observatory']);
 
   // ---- 1. 清旧（只清本 mock 范围，可重复执行）----
   await query('DELETE FROM works WHERE activity_id = ANY($1)', [actIds]);
@@ -229,7 +237,7 @@ const AIGC_TITLES = [
     );
     workIdByTitle.set(r.rows[0].title, r.rows[0].id);
   }
-  // 5a. 网页设计 × 6
+  // 5a. 网页设计 × 14
   for (const s of WEB_SITES) {
     await addWork({
       kind: 'source', title: s.title, author: s.author, category: '网页设计',
@@ -252,16 +260,15 @@ const AIGC_TITLES = [
       activity_id: 'skill-workshop-2026q4', wall_order: s.order,
     });
   }
-  // 5c. AIGC 插画 × 14
-  for (const it of AIGC_TITLES) {
+  // 5c. 美术资源 × 6（每件一组 4 张图集）
+  for (const it of ART_WORKS) {
+    const gallery = [1, 2, 3, 4].map(function (n) { return '/showcase/art/set' + it.set + '_image_' + n + '.jpg'; });
     await addWork({
-      kind: 'image', title: it.t, author: it.a, category: 'AIGC 插画',
-      description: '「自然与科技」主题创作：' + it.t + '（' + it.s + '赛道）。AI 生成 + 手工精修。',
-      cover: '/showcase/aigc/aigc-' + String(it.i).padStart(2, '0') + '.jpg', source: '素材站下载 · mock 展示',
-      detail: it.i === 1
-        ? { layout: 'gallery', theme: '自然与科技 · 系列作品集', style: it.s, tools: 'AI 生成 + 手工精修', gallery: [1, 2, 3, 4].map(function (n) { return '/showcase/aigc/aigc-' + String(n).padStart(2, '0') + '.jpg'; }) }
-        : { layout: 'minimal', theme: '自然与科技', style: it.s, tools: 'AI 生成 + 手工精修' },
-      activity_id: 'aigc-season-2026a', wall_order: it.i * 2,
+      kind: 'image', title: it.t, author: it.a, category: '美术资源',
+      description: it.theme + '。AI 生成 + 手工精修。',
+      cover: gallery[0], source: '社团设计组 · AI 辅助创作',
+      detail: { layout: 'gallery', theme: it.theme, style: it.s, tools: 'AI 生成 + 手工精修', gallery: gallery },
+      activity_id: 'aigc-season-2026a', wall_order: it.order,
     });
   }
   log('✓ 作品上墙 × ' + workIdByTitle.size);
