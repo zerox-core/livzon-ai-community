@@ -32,6 +32,7 @@ router.post('/', async (req, res) => {
   try {
     const w = await query(`SELECT id, activity_id FROM works WHERE id=$1 AND published=true`, [casted.workId]);
     if (!w.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '作品不存在或未发布'));
+    const pool = w.rows[0].activity_id || '';
 
     // 每期活动投票互相独立；已结束（kind=past）的活动不再接受新投票
     if (pool) {
@@ -40,7 +41,6 @@ router.post('/', async (req, res) => {
         return res.status(409).json(err(ErrorCodes.CONFLICT, '该期活动已结束，投票已截止'));
       }
     }
-    const pool = w.rows[0].activity_id || '';
 
     // 今日额度：同人同票池当天 1 票（唯一索引 uq_votes_pool_day 兜底并发）
     const used = await query(

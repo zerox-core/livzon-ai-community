@@ -741,7 +741,7 @@ var AdminPage = () => {
       loadRegs();
       loadActs();
       window.myAdminTab = function (t) {
-        ["works", "regs", "resv", "sgn", "form", "sys"].forEach(function (k) {
+        ["works", "regs", "resv", "sgn", "form", "sys", "stat"].forEach(function (k) {
           var el = document.getElementById("adm-" + k);
           if (el) el.style.display = k === t ? "" : "none";
         });
@@ -753,6 +753,7 @@ var AdminPage = () => {
         if (t === "resv" && (document.getElementById("adm-resv") && !document.getElementById("adm-resv").dataset.loaded)) loadResv();
         if (t === "sgn" && (document.getElementById("adm-sgn") && !document.getElementById("adm-sgn").dataset.loaded)) loadSignups();
         if (t === "form") wrapFormEditor();
+        if (t === "stat") renderStatPanel();
       };
       window.myAdminWork = function (id, status) { patchJson("/api/admin/works/" + id, { status: status }).then(function () { loadWorks(); }); };
       window.myAdminPub = function (id, published) { patchJson("/api/admin/works/" + id, { published: published }).then(function () { loadWorks(); }); };
@@ -765,6 +766,54 @@ var AdminPage = () => {
           actsCache = [].concat(d.current || [], d.upcoming || [], d.past || []);
           renderWorks();
         }).catch(function () {});
+      }
+      function statMock(id, salt, min, max) {
+        var s = String(id || "") + "#" + salt, h = 5381;
+        for (var i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) % 1000003; }
+        return min + (h % (max - min + 1));
+      }
+      function renderStatPanel() {
+        var el = document.getElementById("adm-stat");
+        if (!el) return;
+        el.innerHTML = "<div class='adm-loading'>统计加载中…</div>";
+        fetch("/api/activities").then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.ok) { el.innerHTML = "<div class='adm-empty'>活动数据加载失败</div>"; return; }
+          var d = j.data || {};
+          var acts = [].concat(d.current || [], d.upcoming || [], d.past || []);
+          var rows = acts.map(function (a) {
+            var signup = statMock(a.id, "sgn", 12, 88);
+            var resv = Math.max(3, Math.round(signup * statMock(a.id, "rsv", 40, 85) / 100));
+            var works = statMock(a.id, "wks", 3, 26);
+            var voters = statMock(a.id, "vtr", 18, 160);
+            var days = a.kind === "past" ? statMock(a.id, "day", 5, 14) : (a.kind === "current" ? statMock(a.id, "d2", 1, 5) : 0);
+            var votes = voters * days;
+            return { id: a.id, title: String(a.title || a.name || a.id), kind: a.kind || "current", signup: signup, resv: resv, works: works, voters: voters, votes: votes };
+          });
+          var fw = statMock("free", "wks", 6, 18);
+          rows.push({ id: "__free__", title: "自由展区（不挂活动）", kind: "free", signup: 0, resv: 0, works: fw, voters: statMock("free", "vtr", 10, 60), votes: statMock("free", "day", 30, 220) });
+          var tot = { signup: 0, resv: 0, works: 0, votes: 0 };
+          rows.forEach(function (r) { tot.signup += r.signup; tot.resv += r.resv; tot.works += r.works; tot.votes += r.votes; });
+          var maxVotes = Math.max.apply(null, rows.map(function (r) { return r.votes; })) || 1;
+          var kl = { current: "进行中", upcoming: "未开始", past: "已结束", free: "常设" };
+          var kpi = function (n, v, c) { return "<div style='background:#fff;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:16px 18px'><div style='font-size:10px;letter-spacing:2px;color:#999;margin-bottom:8px'>" + n + "</div><div style='font-family:JetBrains Mono,monospace;font-size:26px;font-weight:600;color:" + (c || "#1a1a1f") + "'>" + v + "</div></div>"; };
+          el.innerHTML =
+            "<div class='adm-note'>以下为 <b>Mock 演示数据</b>：活动列表为真实数据，各统计数字为按活动 ID 固定生成的演示值，接入真实统计接口后自动替换。</div>" +
+            "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:14px 0 18px'>" +
+              kpi("总报名", tot.signup, "#2568d8") + kpi("总预约", tot.resv, "#8a6d1a") + kpi("总提交作品", tot.works, "#2a9d63") + kpi("总投票", tot.votes, "#c94b4b") +
+            "</div>" +
+            "<div class='adm-tbl-wrap'><table class='my-table adm-table min-w-1180'><thead><tr><th>活动</th><th style='width:84px'>状态</th><th style='width:76px'>报名</th><th style='width:76px'>预约</th><th style='width:90px'>提交作品</th><th style='width:90px'>作品转化</th><th style='width:170px'>总票数</th><th style='width:90px'>投票人数</th><th style='width:90px'>作品均票</th></tr></thead><tbody>" +
+            rows.map(function (r) {
+              var pct = Math.round(r.votes * 100 / maxVotes);
+              var conv = r.signup ? Math.round(r.works * 100 / r.signup) : 0;
+              var avg = r.works ? (r.votes / r.works).toFixed(1) : "0.0";
+              return "<tr><td title=\"" + esc(r.id) + "\">" + esc(r.title.slice(0, 40)) + "</td>" +
+                "<td><span class='my-status " + (r.kind === "past" ? "rejected" : r.kind === "current" ? "approved" : "pending") + "'>" + (kl[r.kind] || r.kind) + "</span></td>" +
+                "<td>" + r.signup + "</td><td>" + r.resv + "</td><td>" + r.works + "</td>" +
+                "<td>" + (r.signup ? conv + "%" : "—") + "</td>" +
+                "<td><div style='display:flex;align-items:center;gap:8px'><div style='flex:0 0 72px;height:8px;background:rgba(0,0,0,0.06);border-radius:4px;overflow:hidden'><div style='height:100%;width:" + pct + "%;background:linear-gradient(90deg,#2568d8,#5b8cff)'></div></div><b>" + r.votes + "</b></div></td>" +
+                "<td>" + r.voters + "</td><td>" + avg + "</td></tr>";
+            }).join("") + "</tbody></table></div>";
+        }).catch(function () { el.innerHTML = "<div class='adm-empty'>网络异常，稍后重试</div>"; });
       }
       window.myAdminReg = function (id, status) { patchJson("/api/admin/registrations/" + id, { status: status }).then(function () { loadRegs(); }); };
       window.myAdminSignup = function (id, status) { patchJson("/api/admin/activities/signups/" + id, { status: status }).then(function () { loadSignups(); }); };
@@ -1134,12 +1183,14 @@ var AdminPage = () => {
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sgn')\">报名名单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('form')\">报名表单</button>" +
         "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('sys')\">提醒 / 系统</button>" +
+        "<button class='adm-tab' onclick=\"window.myAdminTab&&window.myAdminTab('stat')\">数据统计</button>" +
       "</div>" +
       "<div id='adm-works' class='adm-panel'><div class='adm-loading'>加载中…</div></div>" +
       "<div id='adm-regs' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-resv' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-sgn' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-form' class='adm-panel' style='display:none'></div>" +
+      "<div id='adm-stat' class='adm-panel' style='display:none'></div>" +
       "<div id='adm-sys' class='adm-panel' style='display:none'>" +
         "<div class='adm-sys-card'>" +
           "<div class='adm-sys-ico'>🔔</div>" +
