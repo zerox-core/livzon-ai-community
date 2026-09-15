@@ -70,33 +70,22 @@ async function main() {
       log('收到问题（chat=' + msg.chatId + '）：' + q.slice(0, 100));
       if (!q) { log('空问题，跳过'); return; }
 
-      const client = channel.getClient();
-
       // 1. 立即回一条"处理中"状态（话题回复），让用户知道机器人已经在干活
+      // channel.send 返回 { messageId }；后续用 channel.editMessage 原地更新成最终答案
       let progressId = null;
       try {
-        const progress = await client.im.message.reply({
-          path: { message_id: msg.messageId },
-          data: {
-            msg_type: 'text',
-            content: JSON.stringify({ text: '收到，正在检索资料…' }),
-            reply_in_thread: true,
-          },
-        });
-        progressId = progress && progress.data ? progress.data.message_id : null;
+        const progress = await channel.send(msg.chatId, { text: '收到，正在检索资料…' }, { replyTo: msg.messageId, replyInThread: true });
+        progressId = progress && progress.messageId ? progress.messageId : null;
         log('已发状态消息：' + progressId);
       } catch (e) {
         log('状态消息发送失败（继续走完整流程）：' + (e && e.message));
       }
 
-      // 原地更新状态消息；更新失败不致命
+      // 原地更新状态消息；更新失败不致命（最后会走正常发送兜底）
       const updateProgress = async (text) => {
         if (!progressId) return;
         try {
-          await client.im.message.update({
-            path: { message_id: progressId },
-            data: { msg_type: 'text', content: JSON.stringify({ text: text }) },
-          });
+          await channel.editMessage(progressId, text);
         } catch (e) { log('状态更新失败：' + (e && e.message)); }
       };
 

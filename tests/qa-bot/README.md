@@ -37,3 +37,11 @@ Q: 去年这个比赛是什么规则       -> 回退现役区（档案馆暂为�
 ```
 
 知识库写入规范见 `server/qa-bot/kb/` 各文档的身份牌（year/status）与归档目录 `kb/archive/<年份>/`。
+
+## LLM 网关连通性自测
+
+```bash
+node tests/qa-bot/test-llm.cjs
+```
+
+直接调 `server/qa-bot/llm.js` 的 chat 走一遍真实网关（读取 `server/.env` 的 LLM 配置），输出 `LLM_OK`（含模型名和回复摘要）或 `LLM_FAIL`（含错误原因），不打印任何密钥。改完 `.env` 里的 `QA_BOT_LLM_*` 配置后先跑这个再重启机器人。
