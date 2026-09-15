@@ -13,7 +13,7 @@ const { saveUploadedFile, createAsset, categoryForKind, categoryForExt } = requi
 
 const router = express.Router();
 
-const KINDS = ['video', 'miniprogram', 'skill', 'mcp', 'source', 'file'];
+const KINDS = ['video', 'miniprogram', 'skill', 'mcp', 'source', 'file', 'image', 'app', 'tool', '3d'];
 // 制品扩展名白名单（代码包 / 压缩包 / 音视频 / 文档 / 图片）
 const ARTIFACT_EXT = new Set([
   'zip', 'tar', 'gz', 'tgz', 'rar', '7z',
@@ -23,6 +23,7 @@ const ARTIFACT_EXT = new Set([
   'json', 'js', 'ts', 'py', 'csv', 'html',
 ]);
 const ARTIFACT_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'artifacts');
+const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 const maxMb = () => parseInt(process.env.ARTIFACT_MAX_MB || '50', 10);
 
 // multer 懒加载（与社区上传同款优雅降级：未装依赖服务器照常启动，端点给友好提示）
@@ -175,8 +176,9 @@ router.get('/:id/download', authRequired, async (req, res) => {
     const url = String(a.storage_url || '');
     if (/^https?:\/\//i.test(url)) return res.redirect(302, url);              // 外链型制品
     if (url.startsWith('/uploads/')) {
-      const fp = path.join(ARTIFACT_DIR, path.basename(url));                 // basename 防穿越
-      if (!fs.existsSync(fp)) return res.status(410).json(err(ErrorCodes.NOT_FOUND, '文件已不存在'));
+      const rel = url.replace(/^\/uploads\//, '').replace(/\.\./g, '');       // 相对 public/uploads 解析（兼容 assets/<cat>/ 与 artifacts/）+ 防穿越
+      const fp = path.join(PUBLIC_DIR, 'uploads', rel);
+      if (!fp.startsWith(path.normalize(PUBLIC_DIR + path.sep)) || !fs.existsSync(fp)) return res.status(410).json(err(ErrorCodes.NOT_FOUND, '文件已不存在'));
       const safe = String(a.filename || ('artifact-' + id)).replace(/[\\/:*?"<>|\r\n]/g, '_');
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="artifact-${id}"; filename*=UTF-8''${encodeURIComponent(safe)}`);

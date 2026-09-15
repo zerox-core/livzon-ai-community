@@ -6831,7 +6831,7 @@ var WorkComments = ({ workId }) => {
     roots.length ? el("div", null, roots.map(function (c) { return renderCmt(c, 0); }))
       : el("div", { style: { fontSize: 13, color: "#bbb", padding: "8px 0" } }, "还没有评论，来抢占第一个沙发吧。"));
 };
-var ART_KIND_LABEL = { video: "视频", miniprogram: "小程序", skill: "Skill", mcp: "MCP", source: "源码包", file: "文件" };
+var ART_KIND_LABEL = { video: "视频", miniprogram: "小程序", skill: "Skill", mcp: "MCP", source: "源码包", file: "文件", image: "作品集", app: "小程序", tool: "工具", "3d": "3D 资源" };
 var Artifacts = ({ workId, ownerId }) => {
   var el = React.createElement;
   var st = React.useState, ef = React.useEffect;
@@ -6914,6 +6914,21 @@ var WorkDetail = ({ workIdx, onBack }) => {
     { stage: "发布", note: "上线社团作品墙，进入本期展示" },
     { stage: "评审", note: "评审记录待管理员补充" }
   ]); /* W1b */
+  /* W7 */ const isArt = work.kind === "image" || layout === "gallery";
+  const carImgs = isArt ? (galleryImgs.length ? galleryImgs : (img ? [img] : [])) : [];
+  const [carIdx, setCarIdx] = React.useState(0);
+  const [dragX, setDragX] = React.useState(null);
+  const [zipInfo, setZipInfo] = React.useState(null);
+  React.useEffect(function () {
+    setCarIdx(0);
+    if (workId == null) { setZipInfo(null); return; }
+    var alive = true;
+    fetch("/api/artifacts?work_id=" + encodeURIComponent(workId)).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (alive && j && j.ok && j.data) setZipInfo((j.data.artifacts || [])[0] || null); }).catch(function () {});
+    return function () { alive = false; };
+  }, [workId]);
+  const carNext = function () { if (carImgs.length) setCarIdx((carIdx + 1) % carImgs.length); };
+  const carPrev = function () { if (carImgs.length) setCarIdx((carIdx - 1 + carImgs.length) % carImgs.length); };
   const source = detail.source || "社团内部征集 · 第 01 期";
   const themeText = detail.theme || work.desc || "";
   const openLink = () => {
@@ -6989,6 +7004,20 @@ var WorkDetail = ({ workIdx, onBack }) => {
       objectFit: "cover"
     }
   }));
+  /* W7b */ const carArrow = function (side) { return { position: "absolute", top: "50%", transform: "translateY(-50%)", left: side === "l" ? 14 : undefined, right: side === "r" ? 14 : undefined, width: 40, height: 40, borderRadius: "50%", border: "none", background: "rgba(26,26,31,0.55)", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }; };
+  const carousel = carImgs.length ? el("div", { style: { width: "100%", marginBottom: 24 } },
+    el("div", {
+      style: { width: "100%", aspectRatio: "16 / 9", borderRadius: 4, overflow: "hidden", background: "#f0f0ec", position: "relative" },
+      onPointerDown: function (e) { setDragX(e.clientX); },
+      onPointerUp: function (e) { if (dragX == null) return; var dx = e.clientX - dragX; setDragX(null); if (dx < -40) carNext(); else if (dx > 40) carPrev(); },
+      onPointerLeave: function () { setDragX(null); }
+    },
+      el("img", { src: carImgs[carIdx % carImgs.length], alt: work.title, draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", userSelect: "none", cursor: "grab", display: "block" } }),
+      el("div", { style: { position: "absolute", right: 12, bottom: 12, background: "rgba(26,26,31,0.6)", color: "#fff", fontSize: 12, padding: "4px 10px", borderRadius: 999, fontFamily: "'JetBrains Mono', monospace" } }, (carIdx + 1) + " / " + carImgs.length),
+      carImgs.length > 1 ? el("button", { style: carArrow("l"), onClick: carPrev }, "‹") : null,
+      carImgs.length > 1 ? el("button", { style: carArrow("r"), onClick: carNext }, "›") : null),
+    carImgs.length > 1 ? el("div", { style: { display: "flex", justifyContent: "center", gap: 8, marginTop: 14 } },
+      carImgs.map(function (_, i) { return el("div", { key: i, onClick: function () { setCarIdx(i); }, style: { width: i === carIdx ? 22 : 8, height: 8, borderRadius: 999, background: i === carIdx ? "#1a1a1f" : "#d5d5cf", cursor: "pointer", transition: "all .25s ease" } }); })) : null) : null;
   const hintLine = linkHint ? el("div", {
     style: {
       marginTop: 10,
@@ -7077,10 +7106,16 @@ var WorkDetail = ({ workIdx, onBack }) => {
         el("div", { style: { paddingTop: 3 } },
           el("div", { style: { fontSize: 14, fontWeight: 500, color: "#333", marginBottom: 4 } }, p.stage, p.time ? " · " + p.time : ""),
           el("div", { style: { fontSize: 12, color: "#888", lineHeight: 1.8 } }, p.note || ""))))));
-  /* W4b */ const galleryBlock = galleryImgs.length > 1 ? el("div", { style: { marginTop: 48 } },
-    el("div", { style: labelStyle }, "GALLERY · 作品集（" + galleryImgs.length + " 张）"),
-    el("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 } },
-      galleryImgs.map(function (g, i) { return el("img", { key: i, src: g, alt: (work.title || "作品") + " · 图 " + (i + 1), onClick: function () { window.open(g, "_blank", "noopener"); }, style: { width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 6, cursor: "zoom-in", display: "block", background: "#eceae6" } }); }))) : null;
+  /* W4b */ const introParas = String(detail.intro || "").split(/\n\s*\n/).map(function (s2) { return s2.trim(); }).filter(Boolean);
+  const artArticle = isArt ? el("div", { style: { marginTop: 48 } },
+    el("div", { style: labelStyle }, "STORY · 图文详情"),
+    themeText ? el("p", { key: "th", style: { fontSize: 15, color: "#444", lineHeight: 2.2 } }, themeText) : null,
+    introParas.map(function (p, i2) { return el("p", { key: "ip" + i2, style: { fontSize: 15, color: "#555", lineHeight: 2.2, marginTop: 18 } }, p); }),
+    galleryImgs.length ? el("div", { style: { marginTop: 30 } },
+      galleryImgs.map(function (g, i) { return el("figure", { key: "fg" + i, style: { margin: "0 0 28px" } },
+        el("img", { src: g, alt: (work.title || "作品") + " · 原图 " + (i + 1), onClick: function () { window.open(g, "_blank", "noopener"); }, style: { width: "100%", display: "block", borderRadius: 6, cursor: "zoom-in", background: "#eceae6" } }),
+        el("figcaption", { style: { fontSize: 11, color: "#aaa", letterSpacing: 2, marginTop: 10, fontFamily: "'JetBrains Mono', monospace" } }, (work.title || "作品") + " · 原图 " + String(i + 1).padStart(2, "0") + " / " + String(galleryImgs.length).padStart(2, "0"))); })) : null) : null;
+  const galleryBlock = artArticle;
   const leftCol = el("div", null,
     el("div", { style: labelStyle }, String(work.category || "").toUpperCase()),
     el("h1", {
@@ -7095,8 +7130,8 @@ var WorkDetail = ({ workIdx, onBack }) => {
     }, work.title),
     el("p", { style: { fontSize: 15, color: "#666", lineHeight: 2, marginBottom: 32 } }, work.desc),
     metaStrip,
-    (layout === "showcase" || layout === "linkcard" || (layout === "gallery" && themeText)) ? themeBlock : null,
-    layout === "gallery" ? galleryBlock : null,
+    (layout === "showcase" || layout === "linkcard") ? themeBlock : null,
+    (isArt || layout === "gallery") ? galleryBlock : null,
     layout === "showcase" ? teamBlock : null,
     layout === "showcase" ? processBlock : null);
   const sideCta = el("button", {
@@ -7149,6 +7184,14 @@ var WorkDetail = ({ workIdx, onBack }) => {
         },
         onClick: onBack
       }, "← 返回作品巨幕"),
+      /* W7c */ ((work.kind === "image" || work.kind === "skill") && zipInfo && workId != null) ? el("button", {
+        style: { width: "100%", background: "#1a1a1f", color: "#fff", border: "none", padding: "14px", borderRadius: 4, fontSize: 14, cursor: "pointer", marginBottom: 12, letterSpacing: 1 },
+        onClick: function () {
+          fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (j) {
+            window.location.href = (j && j.authenticated) ? ("/api/artifacts/" + encodeURIComponent(zipInfo.id) + "/download") : "/login.html";
+          }).catch(function () { window.location.href = "/login.html"; });
+        }
+      }, "⬇ 下载作品包 · " + (zipInfo.filename || "资源")) : null,
       workId != null ? el(VoteButton, { workId: workId }) : null,
       workId != null ? el("div", { style: { height: 8 } }) : null,
       /* W3b */ link ? el("div", { style: { fontSize: 11, color: "#aaa", lineHeight: 1.8 } },
@@ -7174,7 +7217,7 @@ var WorkDetail = ({ workIdx, onBack }) => {
   }, el("div", {
     className: "page-container",
     style: { maxWidth: 1100, margin: "0 auto" }
-  }, backLink, heroImg, ctaStrip, grid,
+  }, backLink, (isArt && carImgs.length ? carousel : heroImg), ctaStrip, grid,
     workId != null ? el(Artifacts, { workId: workId }) : null,
     workId != null ? el(WorkComments, { workId: workId }) : null,
     /* @__PURE__ */ React.createElement("div", {
@@ -7968,13 +8011,19 @@ window.App = App;
             if (w.category) WORKS_INFO[slot].category = w.category;
             if (w.desc) WORKS_INFO[slot].desc = w.desc;
             /* mockB P5 */ var wd = (w.detail && typeof w.detail === "object") ? w.detail : null;
+            if (w.kind) WORKS_INFO[slot].kind = w.kind;
             if (w.theme || w.source || (w.team && w.team.length) || (w.process && w.process.length) || w.link || wd) {
               WORKS_INFO[slot].detail = {
                 theme: (wd && wd.theme) || w.theme || "",
                 source: (wd && wd.source) || w.source || "",
                 team: (wd && wd.team) || w.team || [],
                 process: (wd && wd.process) || w.process || [],
-                link: (wd && wd.link) || w.link || ""
+                link: (wd && wd.link) || w.link || "",
+                /* W6 */ gallery: (wd && Array.isArray(wd.gallery)) ? wd.gallery.filter(function (g2) { return typeof g2 === "string" && g2.trim(); }).slice(0, 24) : [],
+                layout: (wd && wd.layout) || "",
+                intro: (wd && wd.intro) || "",
+                style: (wd && wd.style) || "",
+                tools: (wd && wd.tools) || ""
               };
             }
             if (w.cover && typeof w.cover === "string" && w.cover.indexOf("wall:") !== 0 && w.cover.indexOf("data:") !== 0) {
