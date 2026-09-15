@@ -10,6 +10,9 @@ const docs = kb.loadKB(path.join(QABOT_DIR, 'kb'));
 log('加载文档数:' + docs.length);
 log('标题:' + docs.map(d => d.title + (d.zone === 'archive' ? '(档案' + d.archiveYear + ')' : '')).join(' | '));
 const qs = [
+  '现在有什么活动',
+  '最近有什么比赛',
+  '比赛有奖励吗',
   '我提交的作品什么时候评审',
   '我能不能私信举办方交作品，我不会用平台',
   '网页设计马拉松怎么报名',
