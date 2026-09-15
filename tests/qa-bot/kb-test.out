@@ -1,5 +1,17 @@
-加载文档数:13
-标题:作品巨幕 | 作品提交 | 平台介绍 | 平台新手指南 | 比赛评审 | 美术资源设计赛 秋季场 | Skill 插件工坊 第1期 | 网页设计马拉松 9月赛季 | 活动报名 | 消息通知 | 登录 | 社区功能 | 访问故障排查
+加载文档数:14
+标题:作品巨幕 | 作品提交 | 平台介绍 | 平台新手指南 | 比赛评审 | 美术资源设计赛 秋季场 | Skill 插件工坊 第1期 | 网页设计马拉松 9月赛季 | 活动总览 | 活动报名 | 消息通知 | 登录 | 社区功能 | 访问故障排查
+
+Q: 现在有什么活动  [zone=active]
+  -> 活动总览  score=17.5 zone=active year=2026 status=现役
+  -> Skill 插件工坊 第1期  score=5 zone=active year=2026 status=现役
+
+Q: 最近有什么比赛  [zone=active]
+  -> 比赛评审  score=9.5 zone=active year=2026 status=通用
+  -> 活动总览  score=9.5 zone=active year=2026 status=现役
+
+Q: 比赛有奖励吗  [zone=active]
+  -> 比赛评审  score=11 zone=active year=2026 status=通用
+  -> 网页设计马拉松 9月赛季  score=1.5 zone=active year=2026 status=现役
 
 Q: 我提交的作品什么时候评审  [zone=active]
   -> 比赛评审  score=18.5 zone=active year=2026 status=通用
@@ -10,11 +22,11 @@ Q: 我能不能私信举办方交作品，我不会用平台  [zone=active]
   -> 平台介绍  score=7 zone=active year=2026 status=通用
 
 Q: 网页设计马拉松怎么报名  [zone=active]
-  -> 网页设计马拉松 9月赛季  score=29 zone=active year=2026 status=现役
+  -> 网页设计马拉松 9月赛季  score=31.5 zone=active year=2026 status=现役
   -> 活动报名  score=15 zone=active year=2026 status=通用
 
 Q: 美术赛什么时候截稿  [zone=active]
-  -> 美术资源设计赛 秋季场  score=14.5 zone=active year=2026 status=现役
+  -> 美术资源设计赛 秋季场  score=15 zone=active year=2026 status=现役
   -> 比赛评审  score=5.5 zone=active year=2026 status=通用
 
 Q: 怎么下载作品  [zone=active]
@@ -30,7 +42,7 @@ Q: 投票一天能投几票  [zone=active]
   -> 比赛评审  score=1.5 zone=active year=2026 status=通用
 
 Q: 去年这个比赛是什么规则  [zone=active]
+  -> 比赛评审  score=8.5 zone=active year=2026 status=通用
   -> 平台介绍  score=5 zone=active year=2026 status=通用
-  -> 比赛评审  score=4.5 zone=active year=2026 status=通用
 
 TEST_DONE
