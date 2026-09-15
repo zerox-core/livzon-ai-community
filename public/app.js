@@ -5174,18 +5174,24 @@ var CommunitySection = () => {
       }
       var bs = cfgData.banners || [];
       if (bs.length) {
-        h += "<div class='com-banner'>";
+        h += "<div class='com-banner'" +
+          " onpointerdown='window.comBannerDrag&&window.comBannerDrag(event)'" +
+          " onpointerup='window.comBannerDragEnd&&window.comBannerDragEnd(event)'" +
+          " onpointercancel='window.comBannerDragCancel&&window.comBannerDragCancel()'" +
+          " onpointerleave='window.comBannerDragCancel&&window.comBannerDragCancel()'>";
         h += bs.map(function (b, i) {
-          var slideInner = "<img src='" + esc(b.image) + "' alt='' loading='lazy'>" +
+          var slideInner = "<img src='" + esc(b.image) + "' alt='' loading='lazy' draggable='false'>" +
             (b.title ? "<div class='com-banner-cap'><b>" + esc(b.title) + "</b>" + (b.caption ? "<span>" + esc(b.caption) + "</span>" : "") + "</div>" : "");
           return "<div class='com-banner-slide" + (i === bannerIdx ? " on" : "") + "'>" +
-            (b.link ? "<a href='" + esc(b.link) + "' style='display:block;width:100%;height:100%;color:inherit;text-decoration:none'>" + slideInner + "</a>" : slideInner) +
+            (b.link ? "<a href='" + esc(b.link) + "' style='display:block;width:100%;height:100%;color:inherit;text-decoration:none' onclick='return window.comBannerLinkClick&&window.comBannerLinkClick()'>" + slideInner + "</a>" : slideInner) +
             "</div>";
         }).join("");
         if (bs.length > 1) {
           h += "<div class='com-banner-dots'>" + bs.map(function (b, i) {
             return "<button class='com-dot" + (i === bannerIdx ? " on" : "") + "' onclick=\"window.comBanner&&window.comBanner(" + i + ")\"></button>";
           }).join("") + "</div>";
+          h += "<button type='button' class='com-banner-arr com-banner-arr-l' aria-label='上一张' onclick=\"window.comBannerNav&&window.comBannerNav(-1)\">‹</button>";
+          h += "<button type='button' class='com-banner-arr com-banner-arr-r' aria-label='下一张' onclick=\"window.comBannerNav&&window.comBannerNav(1)\">›</button>";
         }
         h += "</div>";
       }
@@ -5237,6 +5243,24 @@ var CommunitySection = () => {
       renderStage();
     };
     window.comBanner = function (i) { bannerIdx = i; restartBanner(); renderTop(); };
+    /* 轮播增强：左右切换按钮 + 指针/触摸滑动切换（横向滑动切页，纵向滚动不受影响） */
+    window.comBannerNav = function (d) {
+      var bs = (cfgData && cfgData.banners) || [];
+      if (bs.length < 2) return;
+      window.comBanner(((bannerIdx + d) % bs.length + bs.length) % bs.length);
+    };
+    window.comBannerDrag = function (e) { window.__comBdX = e.clientX; };
+    window.comBannerDragCancel = function () { window.__comBdX = null; };
+    window.comBannerDragEnd = function (e) {
+      var x0 = window.__comBdX; window.__comBdX = null;
+      if (x0 == null) return;
+      var bs = (cfgData && cfgData.banners) || [];
+      if (bs.length < 2) return;
+      var dx = e.clientX - x0;
+      if (dx < -40) { window.__comBSw = 1; window.comBanner(bannerIdx + 1 >= bs.length ? 0 : bannerIdx + 1); }
+      else if (dx > 40) { window.__comBSw = 1; window.comBanner(bannerIdx - 1 < 0 ? bs.length - 1 : bannerIdx - 1); }
+    };
+    window.comBannerLinkClick = function () { var sw = window.__comBSw; window.__comBSw = 0; return !sw; };
     window.comViewer = function (pid, idx) {
       var lb = document.getElementById("com-lightbox");
       if (!lb) return;
@@ -6093,6 +6117,12 @@ var CommunitySection = () => {
     .com-banner-dots{position:absolute;left:0;right:0;bottom:10px;display:flex;gap:5px;justify-content:center;}
     .com-dot{width:6px;height:6px;border-radius:50%;border:none;background:rgba(255,255,255,0.45);cursor:pointer;padding:0;}
     .com-dot.on{background:#fff;}
+    .com-banner{touch-action:pan-y;}
+    .com-banner-arr{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:none;background:rgba(15,20,25,0.5);color:#fff;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:5;}
+    .com-banner-arr:hover{background:rgba(15,20,25,0.78);}
+    .com-banner-arr-l{left:12px;}
+    .com-banner-arr-r{right:12px;}
+    @media(max-width:768px){.com-banner-arr{width:30px;height:30px;font-size:16px;}.com-banner-arr-l{left:8px;}.com-banner-arr-r{right:8px;}}
     .com-pub-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
     .com-pub-back{background:none;border:none;font-size:13px;color:#6b7280;cursor:pointer;font-family:inherit;padding:4px 8px;border-radius:6px;}
     .com-pub-back:hover{background:#fff;color:#1d6fd1;}
@@ -7028,19 +7058,16 @@ var WorkDetail = ({ workIdx, onBack }) => {
   ]); /* W1b */
   /* W7 */ const isArt = work.kind === "image" || layout === "gallery";
   const carImgs = isArt ? (galleryImgs.length ? galleryImgs : (img ? [img] : [])) : [];
-  const [carIdx, setCarIdx] = React.useState(0);
-  const [dragX, setDragX] = React.useState(null);
+  /* W8c carIdx/dragX 轮播状态已随轮播移除 */
   const [zipInfo, setZipInfo] = React.useState(null);
   React.useEffect(function () {
-    setCarIdx(0);
     if (workId == null) { setZipInfo(null); return; }
     var alive = true;
     fetch("/api/artifacts?work_id=" + encodeURIComponent(workId)).then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) { if (alive && j && j.ok && j.data) setZipInfo((j.data.artifacts || [])[0] || null); }).catch(function () {});
     return function () { alive = false; };
   }, [workId]);
-  const carNext = function () { if (carImgs.length) setCarIdx((carIdx + 1) % carImgs.length); };
-  const carPrev = function () { if (carImgs.length) setCarIdx((carIdx - 1 + carImgs.length) % carImgs.length); };
+  /* W8d carNext/carPrev 已随轮播移除 */
   const source = detail.source || "社团内部征集 · 第 01 期";
   const themeText = detail.theme || work.desc || "";
   const openLink = () => {
@@ -7098,38 +7125,29 @@ var WorkDetail = ({ workIdx, onBack }) => {
     onMouseEnter: (e) => e.currentTarget.style.color = "#1a1a1f",
     onMouseLeave: (e) => e.currentTarget.style.color = "#999"
   }, "← 返回作品巨幕");
+  /* W8 封面改版：不再轮播，单张封面置顶；美术类取第一张作品图 contain 展示，其余保持 21:9 hero */
+  const heroSrc = (isArt && carImgs.length) ? carImgs[0] : img;
   const heroImg = el("div", {
     style: {
       width: "100%",
-      aspectRatio: "21 / 9",
+      aspectRatio: isArt ? undefined : "21 / 9",
       borderRadius: 4,
       overflow: "hidden",
       marginBottom: 24,
       background: "#f0f0ec"
     }
   }, el("img", {
-    src: img,
+    src: heroSrc,
     alt: work.title,
     style: {
       width: "100%",
-      height: "100%",
-      objectFit: "cover"
+      height: isArt ? "auto" : "100%",
+      maxHeight: 560,
+      objectFit: isArt ? "contain" : "cover",
+      display: "block"
     }
   }));
-  /* W7b */ const carArrow = function (side) { return { position: "absolute", top: "50%", transform: "translateY(-50%)", left: side === "l" ? 14 : undefined, right: side === "r" ? 14 : undefined, width: 40, height: 40, borderRadius: "50%", border: "none", background: "rgba(26,26,31,0.55)", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }; };
-  const carousel = carImgs.length ? el("div", { style: { width: "100%", marginBottom: 24 } },
-    el("div", {
-      style: { width: "100%", aspectRatio: "16 / 9", borderRadius: 4, overflow: "hidden", background: "#f0f0ec", position: "relative" },
-      onPointerDown: function (e) { setDragX(e.clientX); },
-      onPointerUp: function (e) { if (dragX == null) return; var dx = e.clientX - dragX; setDragX(null); if (dx < -40) carNext(); else if (dx > 40) carPrev(); },
-      onPointerLeave: function () { setDragX(null); }
-    },
-      el("img", { src: carImgs[carIdx % carImgs.length], alt: work.title, draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", userSelect: "none", cursor: "grab", display: "block" } }),
-      el("div", { style: { position: "absolute", right: 12, bottom: 12, background: "rgba(26,26,31,0.6)", color: "#fff", fontSize: 12, padding: "4px 10px", borderRadius: 999, fontFamily: "'JetBrains Mono', monospace" } }, (carIdx + 1) + " / " + carImgs.length),
-      carImgs.length > 1 ? el("button", { style: carArrow("l"), onClick: carPrev }, "‹") : null,
-      carImgs.length > 1 ? el("button", { style: carArrow("r"), onClick: carNext }, "›") : null),
-    carImgs.length > 1 ? el("div", { style: { display: "flex", justifyContent: "center", gap: 8, marginTop: 14 } },
-      carImgs.map(function (_, i) { return el("div", { key: i, onClick: function () { setCarIdx(i); }, style: { width: i === carIdx ? 22 : 8, height: 8, borderRadius: 999, background: i === carIdx ? "#1a1a1f" : "#d5d5cf", cursor: "pointer", transition: "all .25s ease" } }); })) : null) : null;
+  /* W8b 轮播已移除：封面用上方 heroImg 单图，作品图集在下方「图文详情」逐张展示 */
   const hintLine = linkHint ? el("div", {
     style: {
       marginTop: 10,
@@ -7329,7 +7347,7 @@ var WorkDetail = ({ workIdx, onBack }) => {
   }, el("div", {
     className: "page-container",
     style: { maxWidth: 1100, margin: "0 auto" }
-  }, backLink, (isArt && carImgs.length ? carousel : heroImg), ctaStrip, grid,
+  }, backLink, heroImg, ctaStrip, grid,
     workId != null ? el(Artifacts, { workId: workId }) : null,
     workId != null ? el(WorkComments, { workId: workId }) : null,
     /* @__PURE__ */ React.createElement("div", {
