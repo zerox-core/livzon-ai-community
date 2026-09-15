@@ -4915,6 +4915,20 @@ var CommunitySection = () => {
       }
       return h;
     }
+    // 帖子操作位：本人可编辑；管理员另有 标精华/取消精华 + 删除
+    function manageActs(p, pid) {
+      var h = "";
+      var own = !!(msgMe && p.userId != null && msgMe.userId != null && Number(p.userId) === Number(msgMe.userId));
+      var adm = !!(msgMe && msgMe.role === "admin");
+      if (own || adm) h += "<button class='com-act com-act-edit' onclick=\"window.comEditPost&&window.comEditPost('" + esc(pid) + "')\">✎ 编辑</button>";
+      if (adm) {
+        h += (p.pinned && p.tag === "featured")
+          ? "<button class='com-act com-act-mgr' onclick=\"window.comPinPost&&window.comPinPost('" + esc(pid) + "',false)\">★ 取消精华</button>"
+          : "<button class='com-act com-act-mgr' onclick=\"window.comPinPost&&window.comPinPost('" + esc(pid) + "',true)\">☆ 标精华</button>";
+        h += "<button class='com-act com-act-del' onclick=\"window.comDeletePost&&window.comDeletePost('" + esc(pid) + "')\">🗑 删除</button>";
+      }
+      return h;
+    }
     function postHtml(p) {
       var pid = postKey(p);
       var open = !!threadOpen[pid];
@@ -4927,13 +4941,14 @@ var CommunitySection = () => {
         "<div class='com-post-clickable' onclick=\"window.comOpenPostFromCard&&window.comOpenPostFromCard(event,'" + esc(pid) + "')\">" +
         "<div class='com-post-head'><b>" + esc(p.author || "同学") + "</b>" + (p.dept ? "<i>" + esc(p.dept) + "</i>" : "") + tag +
         "<span class='com-post-time'>" + esc(p.time || "") + "</span></div>" +
-        "<p class='com-post-text'>" + esc(p.text || "") + "</p>" +
+        "<p class='com-post-text' id='ptext-" + esc(pid) + "'>" + esc(p.text || "") + "</p>" +
         workEmbed(p) +
         mediaHtml(p, pid) +
         "<div class='com-post-acts'>" +
         "<button class='com-act" + (open ? " on" : "") + "' onclick=\"window.comToggleThread&&window.comToggleThread('" + esc(pid) + "')\">💬 " + cc + "</button>" +
         "<button class='com-act" + (p._liked ? " on" : "") + "' id='plike-" + esc(pid) + "' onclick=\"window.comLikePost&&window.comLikePost('" + esc(pid) + "')\">" + (p._liked ? "♥" : "♡") + " " + (p.likes || 0) + "</button>" +
         "<button class='com-act' onclick=\"window.comOpenPost&&window.comOpenPost('" + esc(pid) + "')\">详情 ›</button>" +
+        manageActs(p, pid) +
         "</div>" +
         "</div>" +
         (open ? threadHtml(p) : "") +
@@ -4952,12 +4967,13 @@ var CommunitySection = () => {
         "<div class='com-post-main'>" +
         "<div class='com-post-head'><b>" + esc(p.author || "同学") + "</b>" + (p.dept ? "<i>" + esc(p.dept) + "</i>" : "") + tag +
         "<span class='com-post-time'>" + esc(p.time || "") + "</span></div>" +
-        "<p class='com-post-text'>" + esc(p.text || "") + "</p>" +
+        "<p class='com-post-text' id='ptext-" + esc(pid) + "'>" + esc(p.text || "") + "</p>" +
         workEmbed(p) +
         mediaHtml(p, pid) +
         "<div class='com-post-acts'>" +
         "<span class='com-act' style='cursor:default'>💬 " + cc + "</span>" +
         "<button class='com-act" + (p._liked ? " on" : "") + "' id='plike-" + esc(pid) + "' onclick=\"window.comLikePost&&window.comLikePost('" + esc(pid) + "')\">" + (p._liked ? "♥" : "♡") + " " + (p.likes || 0) + "</button>" +
+        manageActs(p, pid) +
         "</div>" +
         threadHtml(p) +
         "</div></div></div>";
@@ -5536,6 +5552,89 @@ var CommunitySection = () => {
     };
 
 
+    // ===== 帖子管理：编辑（本人）/ 标精华、删除（管理员） =====
+    window.comEditPost = function (pid) {
+      var p = findPost(pid);
+      var el = document.getElementById("ptext-" + pid);
+      if (!p || !el) return;
+      if (document.getElementById("pedit-" + pid)) return;
+      var box = document.createElement("div");
+      box.id = "pedit-" + pid;
+      box.style.marginTop = "6px";
+      box.innerHTML =
+        "<textarea id='pedit-ta-" + esc(pid) + "' rows='5' style='width:100%;box-sizing:border-box;border:1px solid #e4e7eb;border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;resize:vertical;background:#fff;color:#0f1419;line-height:1.7'>" + esc(p.text || "") + "</textarea>" +
+        "<div style='display:flex;align-items:center;gap:8px;margin-top:6px;'>" +
+        "<button class='com-send' id='pedit-save-" + esc(pid) + "' style='padding:5px 16px' onclick=\"window.comSaveEdit&&window.comSaveEdit('" + esc(pid) + "')\">保存</button>" +
+        "<button class='com-tool' onclick=\"window.comCancelEdit&&window.comCancelEdit('" + esc(pid) + "')\">取消</button>" +
+        "<span id='pedit-hint-" + esc(pid) + "' class='com-cmt-loginhint' style='display:none'></span>" +
+        "</div>";
+      el.style.display = "none";
+      el.parentNode.insertBefore(box, el.nextSibling);
+      var ta = document.getElementById("pedit-ta-" + pid);
+      if (ta) ta.focus();
+    };
+    window.comCancelEdit = function (pid) {
+      var box = document.getElementById("pedit-" + pid);
+      var el = document.getElementById("ptext-" + pid);
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      if (el) el.style.display = "";
+    };
+    window.comSaveEdit = function (pid) {
+      var p = findPost(pid);
+      var ta = document.getElementById("pedit-ta-" + pid);
+      var hint = document.getElementById("pedit-hint-" + pid);
+      var btn = document.getElementById("pedit-save-" + pid);
+      if (!p || !ta) return;
+      var text = String(ta.value || "").trim();
+      if (!text) { ta.focus(); return; }
+      if (btn) { btn.disabled = true; btn.textContent = "保存中…"; }
+      fetch("/api/community/posts/" + encodeURIComponent(String(pid)), {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text })
+      }).then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); }).then(function (res) {
+        if (res.status === 401 || res.status === 403) {
+          if (hint) { hint.textContent = (res.j && res.j.error && res.j.error.message) || "没有权限编辑该帖子"; hint.style.display = "inline-block"; }
+          if (btn) { btn.disabled = false; btn.textContent = "保存"; }
+          return;
+        }
+        if (!res.j || !res.j.ok || !res.j.data || !res.j.data.post) throw 0;
+        var np = res.j.data.post;
+        p.text = np.text; if (np.section) p.section = np.section; if (np.userId != null) p.userId = np.userId;
+        renderSidebar(); rerender(snapshotDrafts());
+      }).catch(function () {
+        if (hint) { hint.textContent = "保存失败，请重试"; hint.style.display = "inline-block"; }
+        if (btn) { btn.disabled = false; btn.textContent = "保存"; }
+      });
+    };
+    window.comPinPost = function (pid, on) {
+      var p = findPost(pid);
+      if (!p) return;
+      fetch("/api/admin/community/posts/" + encodeURIComponent(String(pid)) + "/pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(on ? { pinned: true, tag: "featured" } : { pinned: false })
+      }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (j && j.ok && j.data && j.data.post) {
+          p.pinned = !!j.data.post.pinned; p.tag = j.data.post.tag || null;
+          if (j.data.post.section) p.section = j.data.post.section;
+          renderSidebar(); rerender(snapshotDrafts());
+        } else { window.alert("操作失败，请重试"); }
+      }).catch(function () { window.alert("操作失败，请重试"); });
+    };
+    window.comDeletePost = function (pid) {
+      var p = findPost(pid);
+      if (!p) return;
+      if (!window.confirm("确定删除该帖子？删除后不可恢复。")) return;
+      fetch("/api/community/posts/" + encodeURIComponent(String(pid)), { method: "DELETE" })
+        .then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+        .then(function (res) {
+          if (res.status === 403) { window.alert((res.j && res.j.error && res.j.error.message) || "删除帖子是管理权限，仅管理员可操作"); return; }
+          if (!res.j || !res.j.ok) { window.alert("删除失败，请重试"); return; }
+          postsCache = postsCache.filter(function (x) { return postKey(x) !== String(pid); });
+          pendingNew = pendingNew.filter(function (x) { return postKey(x) !== String(pid); });
+          if (detailPid && String(detailPid) === String(pid)) detailPid = null;
+          renderSidebar(); renderMain(); renderFeed(snapshotDrafts());
+        }).catch(function () { window.alert("删除失败，请重试"); });
+    };
+
     // ===== 窄屏侧边抽屉（≤900px 侧边栏改为抽屉，不再挤占顶部） =====
     window.comToggleSide = function (open) {
       var side = document.getElementById("com-side");
@@ -5782,6 +5881,7 @@ var CommunitySection = () => {
     // 登录态 + 未读数（消息中心侧边栏角标）
     msgLoadMe(function () {
       if (cancelled || !msgMe) return;
+      renderSidebar(); renderMain(); // 登录身份到位后重渲染：露出 编辑/管理 按钮
       fetch("/api/my/messages").then(function (r) { return r.json(); }).then(function (j) {
         if (cancelled) return;
         if (j && j.ok && j.data) { msgUnread = j.data.unread || 0; renderSidebar(); }
@@ -5842,6 +5942,11 @@ var CommunitySection = () => {
       delete window.comReplyComment;
       delete window.comCancelReply;
       delete window.comLikeComment;
+      delete window.comEditPost;
+      delete window.comSaveEdit;
+      delete window.comCancelEdit;
+      delete window.comPinPost;
+      delete window.comDeletePost;
       delete window.comOpenPost;
       delete window.comClosePost;
       delete window.comOpenPostFromCard;
@@ -5922,7 +6027,13 @@ var CommunitySection = () => {
     .com-embed-import{display:inline-block;margin-top:8px;font-size:12px;font-weight:600;color:#1d6fd1;text-decoration:none;}
     .com-embed-import:hover{text-decoration:underline;}
     .com-embed-nolink{display:inline-block;margin-top:8px;font-size:11px;color:#9aa3ad;}
-    .com-post-acts{display:flex;gap:18px;margin-top:8px;}
+    .com-post-acts{display:flex;gap:18px;margin-top:8px;flex-wrap:wrap;}
+    .com-act-edit{color:#1d6fd1;font-weight:600;}
+    .com-act-edit:hover{border-color:#1d6fd1;}
+    .com-act-mgr{color:#8a6d1a;font-weight:600;}
+    .com-act-mgr:hover{border-color:#c9a227;}
+    .com-act-del{color:#b8434e;font-weight:600;}
+    .com-act-del:hover{border-color:#b8434e;}
     .com-act{background:none;border:none;font-size:12px;color:#6b7280;cursor:pointer;padding:2px 0;font-family:inherit;}
     .com-act:hover{color:#1d6fd1;}
     .com-act.on{color:#b8434e;font-weight:700;}

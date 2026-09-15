@@ -49,6 +49,7 @@ const DOC_EXT = new Set(['pdf', 'xlsx', 'docx', 'zip', 'pptx', 'txt', 'md']);
 function mapPost(r) {
   return {
     id: r.id,
+    userId: r.user_id != null ? Number(r.user_id) : null,
     author: r.author,
     dept: r.dept || '',
     text: r.text,
@@ -259,6 +260,38 @@ router.post('/posts', authRequired, async (req, res) => {
   }
 });
 
+// ==================== 写：编辑帖子（本人或管理员） ====================
+
+// PUT /api/community/posts/:id —— 编辑帖子正文/分区（仅本人或管理员）
+// body: { content?, section? }，至少一项；校验口径与发帖一致
+router.put('/posts/:id', authRequired, async (req, res) => {
+  try {
+    const isAdmin = req.session.role === 'admin';
+    const me = req.session.userId;
+    const pid = String(req.params.id);
+    const rules = {
+      content: { type: 'string', max: 2000 },
+      section: { type: 'string', enum: SECTION_POST },
+    };
+    const { valid, errors, casted } = checkRules(req.body || {}, rules);
+    if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
+    const r = await query('SELECT user_id, text FROM posts WHERE id=$1 AND deleted=FALSE', [pid]);
+    if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '帖子不存在或已删除'));
+    if (!isAdmin && r.rows[0].user_id !== me) return res.status(403).json(err(ErrorCodes.PERMISSION, '只能编辑自己发布的帖子'));
+    if (casted.content == null && casted.section == null) return res.status(400).json(err(ErrorCodes.VALIDATION, '没有要修改的内容'));
+    const newText = casted.content != null ? casted.content : r.rows[0].text;
+    if (!String(newText).trim()) return res.status(400).json(err(ErrorCodes.VALIDATION, '帖子正文不能为空'));
+    await query(
+      `UPDATE posts SET text=$1, section=COALESCE($2, section) WHERE id=$3`,
+      [newText, casted.section != null ? casted.section : null, pid]);
+    const row = (await query(`SELECT * FROM posts WHERE id=$1`, [pid])).rows[0];
+    res.json(ok({ post: mapPost(row) }));
+  } catch (e) {
+    console.error('[community.posts.put]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
+
 // ==================== 写：评论 ====================
 
 // POST /api/community/posts/:id/comments —— 发评论/回复（要求登录；parent 不限层级，v9）
@@ -353,8 +386,19 @@ async function doSoftDelete(req, res, table, idCol) {
   }
 }
 
-// DELETE /api/community/posts/:id
-router.delete('/posts/:id', authRequired, (req, res) => doSoftDelete(req, res, 'posts', 'id'));
+// DELETE /api/community/posts/:id —— 管理权限：仅管理员可删帖（普通用户仅可编辑自己的帖子）
+router.delete('/posts/:id', authRequired, async (req, res) => {
+  if (req.session.role !== 'admin') return res.status(403).json(err(ErrorCodes.PERMISSION, '删除帖子是管理权限，仅管理员可操作'));
+  try {
+    const r = await query(`SELECT id FROM posts WHERE id=$1 AND deleted=FALSE`, [String(req.params.id)]);
+    if (!r.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '帖子不存在或已删除'));
+    await query(`UPDATE posts SET deleted=TRUE WHERE id=$1`, [String(req.params.id)]);
+    res.json(ok({}));
+  } catch (e) {
+    console.error('[community.delete.posts]', e);
+    res.status(500).json(err(ErrorCodes.INTERNAL));
+  }
+});
 
 // 契约路径别名：DELETE /api/comments/:id（server.js 挂载）
 const deleteComment = [authRequired, (req, res) => doSoftDelete(req, res, 'comments', 'id')];
