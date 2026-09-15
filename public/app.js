@@ -841,7 +841,7 @@ var AdminPage = () => {
         var req = !!((row.querySelector('.af-req') || {}).checked);
         var opts = ((row.querySelector('.af-opt') || {}).value || '').split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
         h += "<div class='pv-lab'>" + esc(lab) + (req ? " <span class='pv-req'>*</span>" : "") + "<div class='pv-fake'>";
-        if (type === 'textarea') h += "<div class='pv-fake pv-fake-ta'></div>";
+        if (type === 'textarea') h += "<div class='pv-fake-ta'></div>";
         else if (type === 'select') h += opts.length ? "<span class='pv-hint'>▾ " + esc(opts[0]) + "</span>" : "<span class='pv-hint'>▾ 选项待填</span>";
         else if (type === 'radio') h += opts.length ? opts.map(function (o) { return "<span class='pv-chip'>○ " + esc(o) + "</span>"; }).join("") : "<span class='pv-hint'>选项待填</span>";
         else if (type === 'checkbox') h += opts.length ? opts.map(function (o) { return "<span class='pv-chip'>☑ " + esc(o) + "</span>"; }).join("") : "<span class='pv-hint'>选项待填</span>";
@@ -1293,7 +1293,7 @@ var AdminPage = () => {
     .pv-deadline{font-size:12px;color:#c98a1b;background:rgba(201,138,27,0.08);border-radius:8px;padding:6px 10px;margin-bottom:12px;}
     .pv-lab{font-size:13px;color:#333;margin-bottom:6px;}
     .pv-req{color:#e5484d;}
-    .pv-fake{height:34px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:#fafbfc;margin:6px 0 12px;}
+    .pv-fake{min-height:34px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:#fafbfc;margin:6px 0 12px;}
     .pv-fake-ta{height:64px;}
     .pv-hint{display:inline-block;font-size:12px;color:#999;line-height:34px;}
     .pv-chip{display:inline-block;font-size:12px;color:#333;border:1px solid rgba(0,0,0,0.12);border-radius:999px;padding:5px 12px;margin:0 6px 6px 0;background:#fff;}
