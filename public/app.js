@@ -5160,9 +5160,10 @@ var CommunitySection = () => {
       if (bs.length) {
         h += "<div class='com-banner'>";
         h += bs.map(function (b, i) {
+          var slideInner = "<img src='" + esc(b.image) + "' alt='' loading='lazy'>" +
+            (b.title ? "<div class='com-banner-cap'><b>" + esc(b.title) + "</b>" + (b.caption ? "<span>" + esc(b.caption) + "</span>" : "") + "</div>" : "");
           return "<div class='com-banner-slide" + (i === bannerIdx ? " on" : "") + "'>" +
-            "<img src='" + esc(b.image) + "' alt='' loading='lazy'>" +
-            (b.title ? "<div class='com-banner-cap'><b>" + esc(b.title) + "</b>" + (b.caption ? "<span>" + esc(b.caption) + "</span>" : "") + "</div>" : "") +
+            (b.link ? "<a href='" + esc(b.link) + "' style='display:block;width:100%;height:100%;color:inherit;text-decoration:none'>" + slideInner + "</a>" : slideInner) +
             "</div>";
         }).join("");
         if (bs.length > 1) {

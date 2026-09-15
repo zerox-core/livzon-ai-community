@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>「一页一世界」网页设计马拉松 · 9 月赛季</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#0d1024;color:#e9eaf5;line-height:1.75}
+  .wrap{max-width:860px;margin:0 auto;padding:0 20px 80px}
+  .topbar{padding:18px 0}
+  .topbar a{color:#a5b4ff;text-decoration:none;font-size:14px}
+  .topbar a:hover{text-decoration:underline}
+  .hero{border-radius:18px;overflow:hidden;margin:14px 0 30px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .hero img{width:100%;display:block}
+  .tag{display:inline-block;background:linear-gradient(90deg,#6366f1,#a855f7);color:#fff;font-size:13px;padding:4px 14px;border-radius:999px;margin-bottom:14px}
+  h1{font-size:30px;line-height:1.35;margin-bottom:14px}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px}
+  .meta span{background:#171b36;border:1px solid #2c3260;border-radius:10px;padding:8px 14px;font-size:13px;color:#c3c9ea}
+  .lead{font-size:17px;color:#d6d9ee;background:#171b36;border:1px solid #2c3260;border-radius:14px;padding:20px 22px;margin-bottom:10px}
+  h2{font-size:21px;margin:36px 0 16px;padding-left:12px;border-left:4px solid #a855f7}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .card{background:#171b36;border:1px solid #2c3260;border-radius:14px;padding:18px 20px}
+  .card b{display:block;font-size:16px;margin-bottom:6px;color:#fff}
+  .card p{font-size:14px;color:#b0b6d6}
+  ol.rules{padding-left:22px}
+  ol.rules li,ul.rules li{padding:8px 0;font-size:15px;color:#d6d9ee;border-bottom:1px dashed #2c3260}
+  ul.rules{list-style:none;padding-left:0}
+  ul.rules li::before{content:"◆ ";color:#a855f7}
+  .timeline{display:grid;gap:0;margin-top:6px}
+  .tl{display:flex;gap:14px;padding:12px 0;border-bottom:1px dashed #2c3260}
+  .tl:last-child{border-bottom:none}
+  .tl b{flex:0 0 118px;color:#a5b4ff;font-size:14px}
+  .tl p{font-size:14px;color:#b0b6d6}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:38px}
+  .cta a{display:inline-block;padding:13px 26px;border-radius:12px;text-decoration:none;font-size:15px;font-weight:600}
+  .cta .primary{background:linear-gradient(90deg,#6366f1,#a855f7);color:#fff}
+  .cta .ghost{border:1px solid #6366f1;color:#a5b4ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar"><a href="/#activities">← 返回活动大厅</a></div>
+  <div class="hero"><img src="/showcase/banners/marathon.jpeg" alt="一页一世界 网页设计马拉松"></div>
+  <span class="tag">正在报名 · 网页设计</span>
+  <h1>「一页一世界」网页设计马拉松 · 9 月赛季</h1>
+  <div class="meta">
+    <span>🗓 2026-09-26 09:00 — 09-27 21:00（48 小时）</span>
+    <span>📍 线上直播间 + 珠海办公室开放工位</span>
+    <span>⏰ 报名截止 09-25（周五）18:00</span>
+  </div>
+
+  <div class="lead">48 小时从命题到上线：抽一个命题盲盒，用一页 HTML 讲一个完整的故事。不限工具、不限框架，交出的作品直接挂上社团大屏轮播，评审与社区投票双通道评奖。</div>
+
+  <h2>为什么值得来</h2>
+  <div class="grid">
+    <div class="card"><b>🎁 命题盲盒</b><p>开赛前谁也不知道题目，48 小时极限创作，完整走一遍「创意 → 上线」。</p></div>
+    <div class="card"><b>🖥 零门槛上墙</b><p>作品直接挂社团大屏轮播 + 源码在线浏览，点进去就能看到你的页面。</p></div>
+    <div class="card"><b>⚖ 双通道评奖</b><p>评审打分 60% + 社区投票 40%，故事讲得完整的作品投票从来不差。</p></div>
+    <div class="card"><b>📚 收录源码库</b><p>优秀源码进社团源码展示库，成为下一届的参考范本。</p></div>
+  </div>
+
+  <h2>比赛节奏</h2>
+  <div class="timeline">
+    <div class="tl"><b>09-25 18:00 前</b><p>完成报名（单人或 2-3 人小队均可），通过审核后获得参赛资格。</p></div>
+    <div class="tl"><b>09-26 09:00</b><p>直播间抽取命题盲盒，48 小时倒计时开始。</p></div>
+    <div class="tl"><b>09-27 21:00</b><p>提交截止：一页可在线浏览的作品 + 简短说明。</p></div>
+    <div class="tl"><b>赛后一周</b><p>评审打分 + 社区投票，公布赛季前三，源码收录展示库。</p></div>
+  </div>
+
+  <h2>参赛规则</h2>
+  <ul class="rules">
+    <li>9-26 上午 9 点直播间抽命题盲盒，48 小时内提交一页可在线浏览的作品；</li>
+    <li>技术栈不限，鼓励纯手写 HTML / CSS / JS，可用 AI 辅助但需在作品中注明；</li>
+    <li>作品须为赛前新创作，获奖前三名将收录进社团源码展示库；</li>
+    <li>报名截止 9-25 18:00，通过审核后可在活动期间上传参赛作品。</li>
+  </ul>
+
+  <div class="cta">
+    <a class="primary" href="/#signup?activity=web-marathon-2026q3">立即报名</a>
+    <a class="ghost" href="/#activities">看看其他活动</a>
+  </div>
+</div>
+</body>
+</html>
