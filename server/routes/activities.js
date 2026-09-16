@@ -77,7 +77,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// GET /api/activities/:id/ics —— 生成 .ics 日历文件（飞书提醒卡片「加入日程」按钮指向它，公开无需登录）
+// GET /api/activities/:id/ics —— 生成 .ics 日历文件（公开无需登录）。
+// 注：原用于飞书卡片「加入日程」按钮，但飞书内点击只会下载文件、非原生加日程，故卡片已移除该按钮；
+//     本接口保留供手动导入日历（浏览器直接访问该地址即可下载）。
 // 依赖 activities.start_at；无 start_at 或活动不存在 → 404。
 function icsEsc(s) {
   return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
@@ -197,7 +199,7 @@ router.post('/:id/reserve', authRequired, async (req, res) => {
   const { valid, errors, casted } = checkRules(req.body || {}, rules);
   if (!valid) return res.status(400).json(err(ErrorCodes.VALIDATION, errors.join('；')));
   try {
-    const a = await query(`SELECT id, kind, title FROM activities WHERE id=$1`, [id]);
+    const a = await query(`SELECT id, kind, title, date_label, location FROM activities WHERE id=$1`, [id]);
     if (!a.rows.length) return res.status(404).json(err(ErrorCodes.NOT_FOUND, '活动不存在'));
     if (a.rows[0].kind !== 'upcoming') {
       return res.status(400).json(err(ErrorCodes.VALIDATION, '该活动不接受预约（已结束或为本期特展）'));
@@ -217,7 +219,7 @@ router.post('/:id/reserve', authRequired, async (req, res) => {
       type: 'reserve', stage: 'reserve', activityId: id,
       title: '已收到您的预约',
       body: `活动「${a.rows[0].title}」预约成功，开始前将通过飞书通知您。`,
-      card: { header: '预约成功', foot: '已登记，活动开始前将通过飞书提醒您。', when: '', location: '' },
+      card: { header: '预约成功', foot: '已登记，活动开始前将通过飞书提醒您。', when: a.rows[0].date_label || '', location: a.rows[0].location || '' },
     });
     res.status(201).json(ok({ reserved: true, repeated: false, message: '预约成功' }));
   } catch (e) {

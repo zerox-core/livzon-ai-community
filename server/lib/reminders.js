@@ -32,21 +32,22 @@ function fmtStart(d) {
   return `${t.getMonth() + 1}月${t.getDate()}日 ${p(t.getHours())}:${p(t.getMinutes())}`;
 }
 
-// 飞书交互卡片：头部蓝标 + markdown 正文；site 非空时加「查看详情」「加入日程」两个按钮。
-// 返回 null → 调用方回退纯文本。
-// 飞书交互卡片：蓝标标题 + markdown 正文 + 可选「查看详情/加入日程」按钮。
+// 飞书交互卡片：蓝标标题 + markdown 正文 + 「查看我的预约」按钮（跳网站个人中心）。
+// 说明：原「加入日程」按钮指向 .ics 下载，飞书内点击只会下载文件、无法直接加日程（不是飞书原生指令），
+//       故移除；如需飞书原生「加入日程」，需接入日历 API（calendar 权限）后单独实现。
 // opts = { header?, foot? }：默认活动开始提醒；报名/预约确认传 header='报名成功'/'预约成功' 复用。
 function buildReminderCard(row, when, site, opts = {}) {
-  let md = `**「${row.title}」**\n时间：${when}\n`;
+  let md = `**「${row.title}」**\n`;
+  if (when) md += `时间：${when}\n`;
   if (row.location) md += `地点：${row.location}\n`;
   md += `\n${opts.foot != null ? opts.foot : '你已预约，记得准时参加。'}`;
+  if (site) md += `\n\n💡 可在网站「个人中心 → 活动记录」查看本次预约状态。`;
   const elements = [{ tag: 'div', text: { tag: 'lark_md', content: md } }];
   if (site) {
     elements.push({
       tag: 'action',
       actions: [
-        { tag: 'button', text: { tag: 'plain_text', content: '查看详情' }, type: 'default', url: site + '/#activities' },
-        { tag: 'button', text: { tag: 'plain_text', content: '加入日程' }, type: 'primary', url: `${site}/api/activities/${encodeURIComponent(row.activity_id)}/ics` },
+        { tag: 'button', text: { tag: 'plain_text', content: '查看我的预约' }, type: 'primary', url: site + '/#my' },
       ],
     });
   }
