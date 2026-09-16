@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" gradientTransform="rotate(235 .5 .5)">
+      <stop offset="0" stop-color="#432915"/><stop offset="1" stop-color="#9c6128"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <circle cx="885" cy="595" r="180" fill="#d9a25f" opacity="0.12"/>
+  <circle cx="835" cy="295" r="260" fill="#d9a25f" opacity="0.08"/>
+  <circle cx="835" cy="295" r="140" fill="none" stroke="#d9a25f" stroke-opacity="0.25" stroke-width="2"/>
+  <path d="M0 640 Q 300 585 600 640 T 1200 640" fill="none" stroke="#d9a25f" stroke-opacity="0.3" stroke-width="3"/>
+  <text x="600" y="412" text-anchor="middle" font-family="'Noto Serif SC','Songti SC',serif" font-size="30" fill="#d9a25f" opacity="0.85" letter-spacing="6">敦煌壁画 · 插画</text>
+</svg>

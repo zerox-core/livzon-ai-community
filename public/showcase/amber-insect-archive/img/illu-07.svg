@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" gradientTransform="rotate(329 .5 .5)">
+      <stop offset="0" stop-color="#2e2010"/><stop offset="1" stop-color="#7a5218"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <circle cx="359" cy="273" r="180" fill="#e0a83e" opacity="0.12"/>
+  <circle cx="489" cy="573" r="260" fill="#e0a83e" opacity="0.08"/>
+  <circle cx="489" cy="573" r="140" fill="none" stroke="#e0a83e" stroke-opacity="0.25" stroke-width="2"/>
+  <path d="M0 640 Q 300 531 600 640 T 1200 640" fill="none" stroke="#e0a83e" stroke-opacity="0.3" stroke-width="3"/>
+  <text x="600" y="412" text-anchor="middle" font-family="'Noto Serif SC','Songti SC',serif" font-size="30" fill="#e0a83e" opacity="0.85" letter-spacing="6">琥珀昆虫档案 · 插画</text>
+</svg>
