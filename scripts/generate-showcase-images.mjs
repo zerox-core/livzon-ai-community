@@ -119,6 +119,7 @@ async function gen(entry) {
     prompt: entry.prompt + '. ' + style,
     n: 1,
     size: entry.size,
+    watermark: false, // 关闭「AI生成」角标水印（豆包接口默认开启）
   };
   let lastErr = '';
   for (let i = 0; i <= RETRY; i++) {
