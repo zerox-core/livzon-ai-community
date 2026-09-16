@@ -3,6 +3,8 @@ server/node_modules/
 public/uploads/
 logs/
 *.zip
+# 例外：数据快照目录 sync/uploads 里的上传文件要随快照同步（含 zip 作品包/源码包）
+!sync/uploads/**
 HANDOFF-CODEX.md
 .DS_Store
 *.bak
