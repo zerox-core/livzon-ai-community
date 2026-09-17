@@ -3,7 +3,7 @@
 //      node start.mjs --port 8888
 //      node start.mjs --stop
 //      node start.mjs --status
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, openSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,9 +19,9 @@ const ENV_EXAMPLE = join(__dirname, 'server', 'env.example');
 const args = process.argv.slice(2);
 
 if (args.includes('--stop')) {
-  stopServer();
+  stopServer(args);
 } else if (args.includes('--status')) {
-  showStatus();
+  showStatus(args);
 } else {
   startServer(args);
 }
@@ -111,37 +111,99 @@ function launchServer(port) {
   }, 2000);
 }
 
-function stopServer() {
-  if (!existsSync(PID_FILE)) {
-    console.log('[stop] 未找到 PID 文件，服务可能未启动');
-    return;
-  }
-  const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
-  try {
-    process.kill(pid, 'SIGTERM');
-    console.log(`[stop] 已发送停止信号到 PID ${pid}`);
-  } catch (e) {
-    console.error('[stop] 停止失败:', e.message);
-  }
-  try { unlinkSync(PID_FILE); } catch {}
-  setTimeout(() => {
-    try { process.kill(pid, 0); console.log('[stop] 进程仍在运行'); }
-    catch { console.log('[stop] 进程已停止'); }
-  }, 1000);
+function parsePort(args) {
+  const portIdx = args.indexOf('--port');
+  if (portIdx >= 0 && args[portIdx + 1]) return parseInt(args[portIdx + 1], 10);
+  return DEFAULT_PORT;
 }
 
-function showStatus() {
-  if (!existsSync(PID_FILE)) {
-    console.log('服务未运行');
+/* 找出正在监听指定端口的进程 PID（停止/状态以端口实况为准，不依赖可能过期的 PID 文件） */
+function findPidsListeningOnPort(port) {
+  const pids = new Set();
+  try {
+    if (process.platform === 'win32') {
+      // netstat 状态列在中文 Windows 上仍是英文 LISTENING
+      const out = execSync('netstat -ano -p tcp', { encoding: 'utf8' });
+      for (const line of out.split('\n')) {
+        const m = line.match(/\s(?:0\.0\.0\.0|\[::\]|127\.0\.0\.1):(\d+)\s+\S+\s+LISTENING\s+(\d+)/i);
+        if (m && Number(m[1]) === port) pids.add(Number(m[2]));
+      }
+    } else {
+      const out = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN || true`, { shell: true, encoding: 'utf8' });
+      for (const l of out.split('\n')) {
+        const n = parseInt(l.trim(), 10);
+        if (n > 0) pids.add(n);
+      }
+    }
+  } catch { /* 查询失败时按空处理，由调用方兜底 */ }
+  pids.delete(process.pid);
+  pids.delete(0);
+  return [...pids];
+}
+
+function stopServer(args) {
+  const port = parsePort(args);
+  const pids = new Set();
+
+  if (existsSync(PID_FILE)) {
+    const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+    if (pid > 0) {
+      try {
+        process.kill(pid, 0);
+        pids.add(pid);
+      } catch {
+        console.log(`[stop] PID 文件记录的 ${pid} 已不存在（过期记录），改按端口定位`);
+      }
+    }
+    try { unlinkSync(PID_FILE); } catch {}
+  }
+
+  for (const p of findPidsListeningOnPort(port)) pids.add(p);
+
+  if (!pids.size) {
+    console.log('[stop] 未发现运行中的服务进程');
     return;
   }
-  const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
-  try {
-    process.kill(pid, 0);
-    console.log(`服务运行中，PID=${pid}`);
-  } catch {
-    console.log(`PID 文件存在但进程已退出（PID=${pid}）`);
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(`[stop] 已停止 PID ${pid}`);
+    } catch (e) {
+      console.error(`[stop] 停止 PID ${pid} 失败: ${e.message}（Windows 下可手动: taskkill /F /PID ${pid}）`);
+    }
   }
+
+  // 轮询确认端口真正释放，最多 5 秒——不做"看起来停了"的假报告
+  const t0 = Date.now();
+  (function verify() {
+    checkPort(port, (status) => {
+      if (status === 'free') {
+        console.log(`[stop] ✓ 端口 ${port} 已释放`);
+        return;
+      }
+      if (Date.now() - t0 < 5000) return setTimeout(verify, 500);
+      console.error(`[stop] ✗ 端口 ${port} 仍被占用，请人工检查: netstat -ano | findstr :${port}`);
+    });
+  })();
+}
+
+function showStatus(args) {
+  const port = parsePort(args);
+  const listeners = findPidsListeningOnPort(port);
+  if (listeners.length) {
+    console.log(`服务运行中（端口 ${port} 监听 PID=${listeners.join(', ')}）`);
+    return;
+  }
+  if (existsSync(PID_FILE)) {
+    const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+    try {
+      process.kill(pid, 0);
+      console.log(`进程 PID=${pid} 存活但未监听端口 ${port}（可能正在启动）`);
+      return;
+    } catch {}
+  }
+  console.log('服务未运行');
 }
 
 function spawnNpm(args, opts) {
